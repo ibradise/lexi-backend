@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import { errorHandler } from './middleware/errorHandler';
 import vocabularyRoutes from './routes/vocabulary.routes';
 import reviewRoutes from './routes/review.routes';
+import dashboardRoutes from './routes/dashboard.routes';
 
 const app = express();
 
