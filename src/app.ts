@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { errorHandler } from './middleware/errorHandler';
 import vocabularyRoutes from './routes/vocabulary.routes';
+import reviewRoutes from './routes/review.routes';
 
 const app = express();
 
@@ -17,6 +18,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use('/api/vocabulary', vocabularyRoutes);
+app.use('/api/review', reviewRoutes);
 
 app.use(errorHandler);
 
