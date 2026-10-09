@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model VocabularyWord {
+  id             String   @id @default(cuid())
+  word           String
+  partOfSpeech   String?
+  pronunciation  String?
+  difficulty     Int      @default(3)
+  sourceContext  String?
+  sourceUrl      String?
+  sourceTitle    String?
+  dateAdded      DateTime @default(now())
+  isArchived     Boolean  @default(false)
+
+  meanings       WordMeaning[]
+  examples      Example[]
+  learningState LearningState?
+  reviews       Review[]
+  aiCache       AICacheEntry[]
+
+  @@unique([word])
+  @@index([dateAdded])
+  @@index([isArchived])
+}
+
+model WordMeaning {
+  id        String @id @default(cuid())
+  wordId    String
+  meaning   String
+  isPrimary Boolean @default(false)
+
+  word      VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@index([wordId])
+}
+
+model Example {
+  id       String @id @default(cuid())
+  wordId   String
+  sentence String
+  context  String?
+
+  word     VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@index([wordId])
+}
+
+model LearningState {
+  id              String    @id @default(cuid())
+  wordId          String    @unique
+  status          WordStatus @default(NEW)
+  knowledgeScore  Float     @default(0)
+  easeFactor      Float     @default(2.5)
+  intervalDays    Int       @default(0)
+  repetitions     Int       @default(0)
+  nextReviewAt    DateTime?
+  lastReviewedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  word            VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@index([nextReviewAt])
+  @@index([status])
+}
+
+model Review {
+  id                String       @id @default(cuid())
+  wordId            String
+  exerciseType      ExerciseType
+  result            ReviewResult
+  responseTimeMs Int?
+  userAnswer       String?
+  correctAnswer    String?
+  hintUsed         Boolean      @default(false)
+  createdAt        DateTime     @default(now())
+
+  word              VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@index([wordId, createdAt])
+}
+
+model AICacheEntry {
+  id         String   @id @default(cuid())
+  wordId     String
+  promptHash String
+  response   Json
+  model      String
+  tokensUsed Int?
+  createdAt  DateTime @default(now())
+
+  word       VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+
+  @@unique([wordId, promptHash])
+  @@index([createdAt])
+}
+
+enum WordStatus {
+  NEW
+  LEARNING
+  FAMILIAR
+  STRONG
+  MASTERED
+}
+
+enum ExerciseType {
+  DEFINITION_RECALL
+  MULTIPLE_CHOICE
+  CONTEXT_COMPLETION
+  MEANING_FROM_CONTEXT
+  WORD_SELECTION
+  SENTENCE_CREATION
+  SIMILAR_WORD_DISTINCTION
+}
+
+enum ReviewResult {
+  CORRECT
+  INCORRECT
+  PARTIAL
+  SKIPPED
+}
