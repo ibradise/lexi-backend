@@ -4,9 +4,11 @@ export const calculateKnowledgeScore = (reviews: Review[]): number => {
   if (reviews.length === 0) return 0;
 
   const last10 = reviews.slice(-10);
+
   const correctCount = last10.filter((r) => r.result === 'CORRECT').length;
   const accuracyComponent = correctCount / last10.length;
 
+// Reverse the response-time ratio(1 - avgResponseTime) so faster answers get higher scores, indicating the user is more familiar with the word.
   const avgResponseTime =
     last10.reduce((sum, r) => sum + (r.responseTimeMs || 5000), 0) / last10.length;
   const timeComponent = Math.max(0, 1 - avgResponseTime / 10000);
@@ -17,7 +19,7 @@ export const calculateKnowledgeScore = (reviews: Review[]): number => {
   const repetitionComponent = Math.min(reviews.length / 8, 1.0);
 
   return (
-    accuracyComponent * 0.4 +
+    accuracyComponent * 0.65 +
     timeComponent * 0.15 +
     hintComponent * 0.1 +
     repetitionComponent * 0.1

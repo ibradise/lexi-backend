@@ -12,6 +12,28 @@ Lexi backend — Express + TypeScript API for the Lexi vocabulary learning app.
 
 ---
 
+## MANDATORY WORKFLOW (do not skip)
+
+### Before Building
+1. Read `../prd/WORKFLOW.md` — this is how we work
+2. Read `../prd/requirements.md` — what to build
+3. Read `../prd/architecture.md` — system flow
+4. Read `docs/tasks.md` — what's next
+5. Read `docs/architecture.md` — current code structure
+
+### After Building
+6. Update `docs/IMPLEMENTATION.md` — what was actually built
+7. Update `docs/architecture.md` — if code structure changed
+8. **STOP and ask the user** for approval before clearing `docs/tasks.md`
+9. After approval, clear `docs/tasks.md`
+10. Commit
+
+**DO NOT** clear `docs/tasks.md` automatically or immediately.
+**ALWAYS** wait for explicit user approval before clearing.
+**DO NOT** start next phase until all steps are done.
+
+---
+
 ## Rules
 
 ### DO
@@ -33,6 +55,8 @@ Lexi backend — Express + TypeScript API for the Lexi vocabulary learning app.
 - Do NOT add new dependencies without asking
 - Do NOT modify the Prisma schema without updating this file
 - Do NOT expose the Gemini API key in any response
+- **DO NOT install outdated or RC versions of packages** — always install the latest stable version
+- **DO NOT guess or assume any real-time data** — always use the websearch tool to verify latest versions, APIs, documentation, or any information from the internet
 
 ---
 

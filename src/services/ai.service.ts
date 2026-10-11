@@ -44,7 +44,7 @@ const callGeminiWithRetry = async (prompt: string): Promise<string> => {
       const timeout = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -113,7 +113,7 @@ export const generateWordContent = async (
         wordId,
         promptHash,
         response: content as object,
-        model: 'gemini-1.5-flash',
+        model: 'gemini-3.5-flash',
       },
     });
 
