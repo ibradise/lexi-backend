@@ -14,8 +14,9 @@ Generate a JSON response with this exact structure:
   "meanings": [
     { "meaning": "...", "isPrimary": true }
   ],
-  "examples": [
-    { "sentence": "...", "context": "workplace|relationships|technology|science|business|daily_life" }
+  "exercises": [
+    { "type": "EXAMPLE", "content": "...", "context": "workplace|relationships|technology|science|business|daily_life" },
+    { "type": "MULTIPLE_CHOICE", "question": "What is the meaning of 'malleable'?", "options": ["simple def A","simple def B","simple def C","simple def D"], "correctAnswer": "simple def A", "explanation": "..." }
   ],
   "synonyms": ["..."],
   "antonyms": ["..."],
@@ -25,7 +26,10 @@ Generate a JSON response with this exact structure:
 
 Rules:
 - Provide 1-2 meanings (mark the most common as primary)
-- Provide 4-6 examples, each in a DIFFERENT context
+- Provide 4-6 exercises TOTAL, including 2-3 EXAMPLES and 2-3 interactive exercises
+- Each exercise must have a DIFFERENT context
+- For MULTIPLE_CHOICE: provide exactly 4 options, correctAnswer is the correct definition text
+- For EXAMPLE: content is a natural sentence, context is one of: workplace|relationships|technology|science|business|daily_life
 - Use clear, natural English
 - Do not repeat the user's original sentence as an example
 - Difficulty: 1=very easy, 5=very advanced

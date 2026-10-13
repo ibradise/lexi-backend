@@ -6,7 +6,15 @@ import { ApiError } from '../utils/ApiError';
 
 interface AIContent {
   meanings: { meaning: string; isPrimary: boolean }[];
-  examples: { sentence: string; context: string }[];
+  exercises: {
+    type: 'EXAMPLE' | 'MULTIPLE_CHOICE';
+    content?: string;      // EXAMPLE: the sentence
+    context?: string;      // EXAMPLE: context label
+    question?: string;     // MULTIPLE_CHOICE: the prompt
+    options?: string[];    // MULTIPLE_CHOICE: 4 simple-English definitions
+    correctAnswer?: string;// MULTIPLE_CHOICE: correct definition text
+    explanation?: string;  // MULTIPLE_CHOICE: why
+  }[];
   synonyms: string[];
   antonyms: string[];
   pronunciation: string;
@@ -21,13 +29,26 @@ const parseAIResponse = (text: string): AIContent => {
   if (!data.meanings || !Array.isArray(data.meanings) || data.meanings.length === 0) {
     throw new Error('Invalid AI response: meanings missing');
   }
-  if (!data.examples || !Array.isArray(data.examples) || data.examples.length === 0) {
-    throw new Error('Invalid AI response: examples missing');
+  if (!data.exercises || !Array.isArray(data.exercises) || data.exercises.length === 0) {
+    throw new Error('Invalid AI response: exercises missing');
+  }
+
+  // Validate each exercise has required fields per type
+  for (const exercise of data.exercises) {
+    if (exercise.type === 'EXAMPLE') {
+      if (!exercise.content || !exercise.context) {
+        throw new Error('Invalid EXAMPLE exercise: missing content or context');
+      }
+    } else if (exercise.type === 'MULTIPLE_CHOICE') {
+      if (!exercise.question || !exercise.options || exercise.options.length !== 4 || !exercise.correctAnswer) {
+        throw new Error('Invalid MULTIPLE_CHOICE exercise: missing question, 4 options, or correctAnswer');
+      }
+    }
   }
 
   return {
     meanings: data.meanings,
-    examples: data.examples,
+    exercises: data.exercises,
     synonyms: data.synonyms || [],
     antonyms: data.antonyms || [],
     pronunciation: data.pronunciation || '',
@@ -52,7 +73,8 @@ const callGeminiWithRetry = async (prompt: string): Promise<string> => {
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
               temperature: 0.3,
-              maxOutputTokens: 1024,
+              maxOutputTokens: 3000,
+              responseMimeType: 'application/json',
             },
           }),
           signal: controller.signal,

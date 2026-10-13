@@ -20,7 +20,7 @@ model VocabularyWord {
   isArchived     Boolean  @default(false)
 
   meanings       WordMeaning[]
-  examples      Example[]
+  exercises      Exercise[]
   learningState LearningState?
   reviews       Review[]
   aiCache       AICacheEntry[]
@@ -41,15 +41,22 @@ model WordMeaning {
   @@index([wordId])
 }
 
-model Example {
-  id       String @id @default(cuid())
-  wordId   String
-  sentence String
-  context  String?
+model Exercise {
+  id            String       @id @default(cuid())
+  wordId        String
+  type          ExerciseType
+  content       String?      // EXAMPLE: the sentence
+  context       String?      // EXAMPLE: context label
+  question      String?      // MULTIPLE_CHOICE: "What is the meaning of 'X'?"
+  options       Json?        // MULTIPLE_CHOICE: ["simple def A","B","C","D"]
+  correctAnswer String?      // MULTIPLE_CHOICE: correct definition text
+  explanation   String?      // MULTIPLE_CHOICE: why
+  createdAt     DateTime     @default(now())
 
-  word     VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
+  word          VocabularyWord @relation(fields: [wordId], references: [id], onDelete: Cascade)
 
   @@index([wordId])
+  @@index([type])
 }
 
 model LearningState {

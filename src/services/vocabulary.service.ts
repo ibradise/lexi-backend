@@ -88,7 +88,7 @@ export const getWord = async (id: string) => {
     where: { id },
     include: {
       meanings: true,
-      examples: true,
+      exercises: true,
       learningState: true,
       reviews: {
         orderBy: { createdAt: 'desc' },

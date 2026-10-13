@@ -20,6 +20,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/api/vocabulary', vocabularyRoutes);
 app.use('/api/review', reviewRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use(errorHandler);
 
