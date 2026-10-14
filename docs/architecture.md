@@ -116,7 +116,9 @@ POST /api/vocabulary { words: [...] }
   → on boot: sweepPendingWords() re-enqueues every `aiModel = null` word
 ```
 
-- In-memory queue, concurrency **3**; failures logged and left PENDING (re-runnable)
+- In-memory queue, concurrency **3**; failures **retry in-run with exponential backoff**
+  (`MAX_ATTEMPTS = 3`, base 2s → 2s, 4s) and are then left PENDING for the boot sweep / `regenerate-ai`
+- Single `addWord` failures/timeouts are also handed to the worker (enqueue-on-failure)
 - `aiReady` (`aiModel !== null`) is surfaced on review-queue and list responses so the
   client can show "preparing…" while content is still generating
 - Words are visible in `GET /review/today` (NEW queue) as soon as they are created

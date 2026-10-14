@@ -78,6 +78,9 @@ export const addWord = async (input: AddWordInput) => {
     return persistAIData(word.id, aiData);
   }
 
+  // AI didn't finish within the wait (timeout/failure): hand off to the background worker to retry.
+  enqueueAIGeneration([word.id]);
+
   return word;
 };
 

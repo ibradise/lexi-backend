@@ -139,6 +139,48 @@ describe('Vocabulary API', () => {
     });
   });
 
+  describe('AI generation retries', () => {
+    it('should retry after a failure and eventually persist aiData', async () => {
+      const name = `retry${Date.now()}`;
+      (generateWordContent as jest.Mock)
+        .mockRejectedValueOnce(new Error('temporary failure 1'))
+        .mockRejectedValueOnce(new Error('temporary failure 2'));
+
+      const create = await request(app).post('/api/vocabulary').send({ word: name });
+      expect(create.status).toBe(201);
+      expect(create.body.data.aiData).toBeFalsy();
+
+      const id = create.body.data.id;
+      let ready = false;
+      for (let i = 0; i < 60 && !ready; i++) {
+        const get = await request(app).get(`/api/vocabulary/${id}`);
+        ready = Boolean(get.body.data.aiData);
+        if (!ready) await new Promise((r) => setTimeout(r, 200));
+      }
+      expect(ready).toBe(true);
+    });
+
+    it('should give up after MAX_ATTEMPTS and leave the word PENDING', async () => {
+      const name = `giveup${Date.now()}`;
+      (generateWordContent as jest.Mock).mockRejectedValue(new Error('always fails'));
+
+      const create = await request(app).post('/api/vocabulary').send({ word: name });
+      const id = create.body.data.id;
+
+      // 1 addWord call + 3 worker attempts (retries ~2s, then ~4s apart)
+      await new Promise((r) => setTimeout(r, 7500));
+
+      const calls = (generateWordContent as jest.Mock).mock.calls.filter(
+        (c) => c[0] === name
+      ).length;
+      expect(calls).toBe(4);
+
+      const get = await request(app).get(`/api/vocabulary/${id}`);
+      expect(get.body.data.aiData).toBeFalsy();
+      expect(get.body.data.aiModel).toBeFalsy();
+    });
+  });
+
   describe('GET /api/vocabulary', () => {
     it('should list words', async () => {
       const res = await request(app).get('/api/vocabulary');

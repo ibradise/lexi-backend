@@ -157,3 +157,15 @@
 ## Notes
 - The client can close the app immediately after a bulk add; words are created synchronously and AI content is generated server-side in the background
 - No schema/migration change (uses existing `aiData` / `aiModel`)
+
+---
+
+## 2026-10-14 — AI generation retries (attempt tracking + backoff)
+- ✅ `aiQueue.service`: failed worker jobs now retry in-run — `attempts` map (`MAX_ATTEMPTS = 3`), exponential backoff `2000 * 2 ** (tries - 1)` ms (2s, 4s), re-enqueued via `setTimeout(...).unref()` (won't keep the process alive)
+- ✅ Success clears the word's attempt counter; after `MAX_ATTEMPTS` the worker gives up and leaves the word PENDING (boot sweep / `regenerate-ai` still recover it)
+- ✅ Single `addWord`: when the hybrid 8s wait fails/times out, the word is handed to the background worker (`enqueueAIGeneration`) instead of being left untouched
+- ✅ Tests: retry-then-succeed (mocked reject ×2 → resolves) and give-up (always reject → exactly 4 calls, stays PENDING) — 43 passing
+
+## Notes
+- Retries only run while the process is alive; a word that exhausts its attempts is PENDING until restart/regenerate
+- Attempts stack on `callGeminiWithRetry`'s internal 3 attempts (up to ~9 Gemini calls per word)

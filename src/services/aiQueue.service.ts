@@ -4,6 +4,8 @@ import { generateWordContent, getAIModel } from './ai.service';
 import { AIData } from '../types/ai';
 
 const CONCURRENCY = 3;
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_MS = 2000;
 
 // Writes the AI response onto the word row (single jsonb column) plus the denormalized pronunciation/difficulty columns.
 export const persistAIData = async (wordId: string, data: AIData) => {
@@ -22,7 +24,26 @@ export const persistAIData = async (wordId: string, data: AIData) => {
 
 const queue: string[] = [];
 const known = new Set<string>();
+const attempts = new Map<string, number>();
 let active = 0;
+
+// Failures only count while the process is running. A word that exhausts MAX_ATTEMPTS stays
+// PENDING (aiModel = null) and is picked up again by the boot sweep or regenerate-ai.
+const scheduleRetry = (wordId: string) => {
+  const tries = (attempts.get(wordId) ?? 0) + 1;
+  attempts.set(wordId, tries);
+
+  if (tries >= MAX_ATTEMPTS) {
+    attempts.delete(wordId);
+    return false;
+  }
+
+  const delay = RETRY_BASE_MS * 2 ** (tries - 1);
+  console.warn(`AI retry ${tries}/${MAX_ATTEMPTS - 1} for word ${wordId} in ${delay}ms`);
+  const timer = setTimeout(() => enqueueAIGeneration([wordId]), delay);
+  timer.unref();
+  return true;
+};
 
 const processWord = async (wordId: string) => {
   const word = await prisma.vocabularyWord.findUnique({
@@ -53,8 +74,13 @@ const pump = () => {
     const wordId = queue.shift() as string;
     active += 1;
     void processWord(wordId)
+      .then(() => {
+        attempts.delete(wordId);
+      })
       .catch((err) => {
-        console.error(`AI generation failed for word ${wordId}:`, err);
+        if (!scheduleRetry(wordId)) {
+          console.error(`AI generation failed for word ${wordId} after ${MAX_ATTEMPTS} attempts:`, err);
+        }
       })
       .finally(() => {
         active -= 1;

@@ -207,4 +207,6 @@ PORT=3001
 - Retry with exponential backoff (3 attempts)
 - `addWord` (single) waits up to 8s for AI; **bulk add** creates words immediately and generates
   AI in the background via `aiQueue.service.ts` (concurrency 3, idempotent, boot sweep for PENDING)
+- Background jobs retry in-run on failure: `MAX_ATTEMPTS = 3` with exponential backoff (2s, 4s);
+  single `addWord` failures are also enqueued for retry
 - `aiReady` (`aiModel !== null`) is exposed on review-queue and list responses
