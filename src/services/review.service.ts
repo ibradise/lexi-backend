@@ -1,3 +1,4 @@
+import { ExerciseType, ReviewResult } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
 import {
@@ -9,8 +10,8 @@ import {
 
 interface SubmitReviewInput {
   wordId: string;
-  exerciseType: string;
-  result: 'CORRECT' | 'INCORRECT' | 'PARTIAL' | 'SKIPPED';
+  exerciseType: ExerciseType;
+  result: ReviewResult;
   responseTimeMs?: number;
   userAnswer?: string;
   hintUsed: boolean;
@@ -19,71 +20,70 @@ interface SubmitReviewInput {
 export const submitReview = async (input: SubmitReviewInput) => {
   const word = await prisma.vocabularyWord.findUnique({
     where: { id: input.wordId },
-    include: { learningState: true, reviews: true },
+    include: { learningState: true, reviews: true },  
   });
 
   if (!word) {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
 
-  const review = await prisma.review.create({
-    data: {
-      wordId: input.wordId,
-      exerciseType: input.exerciseType as never,
-      result: input.result,
-      responseTimeMs: input.responseTimeMs,
-      userAnswer: input.userAnswer,
-      hintUsed: input.hintUsed,
-    },
+  return prisma.$transaction(async (tx) => {
+    const review = await tx.review.create({
+      data: {
+        wordId: input.wordId,
+        exerciseType: input.exerciseType,
+        result: input.result,
+        responseTimeMs: input.responseTimeMs,
+        userAnswer: input.userAnswer,
+        hintUsed: input.hintUsed,
+      },
+    });
+
+    const allReviews = [...word.reviews, review];
+    const newScore = calculateKnowledgeScore(allReviews);
+    const newStatus = getStatusFromScore(newScore);
+
+    const currentInterval = word.learningState?.intervalDays || 0;
+    const currentEase = word.learningState?.easeFactor || 2.5;
+    const currentReps = word.learningState?.repetitions || 0;
+
+    const { intervalDays, easeFactor, repetitions } = calculateNewInterval(
+      {
+        intervalDays: currentInterval,
+        easeFactor: currentEase,
+        repetitions: currentReps,
+      } as never,
+      input.result
+    );
+
+    const nextReviewAt = new Date();
+    nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
+
+    const learningState = await tx.learningState.upsert({
+      where: { wordId: input.wordId },
+      create: {
+        wordId: input.wordId,
+        status: newStatus as never,
+        knowledgeScore: newScore,
+        easeFactor,
+        intervalDays,
+        repetitions,
+        nextReviewAt,
+        lastReviewedAt: new Date(),
+      },
+      update: {
+        status: newStatus as never,
+        knowledgeScore: newScore,
+        easeFactor,
+        intervalDays,
+        repetitions,
+        nextReviewAt,
+        lastReviewedAt: new Date(),
+      },
+    });
+
+    return { review, learningState };
   });
-
-  const allReviews = [...word.reviews, review];
-  const newScore = calculateKnowledgeScore(allReviews);
-  const newStatus = getStatusFromScore(newScore);
-
-  const currentInterval = word.learningState?.intervalDays || 0;
-  const currentEase = word.learningState?.easeFactor || 2.5;
-  const currentReps = word.learningState?.repetitions || 0;
-
-  const { intervalDays, easeFactor, repetitions } = calculateNewInterval(
-    {
-      intervalDays: currentInterval,
-      easeFactor: currentEase,
-      repetitions: currentReps,
-    } as never,
-    input.result
-  );
-
-  const nextReviewAt = new Date();
-  nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
-
-  const learningState = await prisma.learningState.upsert({
-    where: { wordId: input.wordId },
-    create: {
-      wordId: input.wordId,
-      status: newStatus as never,
-      knowledgeScore: newScore,
-      easeFactor,
-      intervalDays,
-      repetitions,
-      nextReviewAt,
-      lastReviewedAt: new Date(),
-    },
-    update: {
-      status: newStatus as never,
-      knowledgeScore: newScore,
-      easeFactor,
-      intervalDays,
-      repetitions,
-      nextReviewAt,
-      lastReviewedAt: new Date(),
-    },
-  });
-
-  return {
-    review,
-    learningState,
-  };
 };
 
 export const getTodayReview = async () => {

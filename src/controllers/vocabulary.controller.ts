@@ -58,6 +58,18 @@ export const getWord = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
+export const getExercises = catchAsync(async (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const result = await vocabularyService.getExercises(id);
+
+  res.json({
+    success: true,
+    data: result,
+    error: null,
+    meta: null,
+  });
+});
+
 export const deleteWord = catchAsync(async (req: Request, res: Response) => {
   const id = req.params.id as string;
   const result = await vocabularyService.deleteWord(id);

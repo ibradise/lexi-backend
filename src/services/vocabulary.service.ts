@@ -1,5 +1,11 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
+import { generateWordContent, getAIModel } from './ai.service';
+import { AIExercise, AIData } from '../types/ai';
+
+const AI_WAIT_MS = 8000;
+const ALLOWED_SORT_FIELDS = ['dateAdded', 'word'] as const;
 
 interface AddWordInput {
   word: string;
@@ -8,6 +14,52 @@ interface AddWordInput {
   sourceUrl?: string;
   sourceTitle?: string;
 }
+
+/**
+ * Resolves with the promise value, or `null` if it rejects or does not settle within `ms`.
+ * Clears the timer so it never keeps the process alive.
+ */
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | null> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      }
+    );
+  });
+
+const shuffle = <T>(items: T[]): T[] => {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+};
+
+/**
+ * Writes the AI response onto the word row (single jsonb column) plus the
+ * denormalized pronunciation/difficulty columns.
+ */
+const persistAIData = async (wordId: string, data: AIData) => {
+  return prisma.vocabularyWord.update({
+    where: { id: wordId },
+    data: {
+      aiData: data as unknown as Prisma.InputJsonValue,
+      aiModel: getAIModel(),
+      aiUpdatedAt: new Date(),
+      pronunciation: data.pronunciation || null,
+      difficulty: data.difficulty ?? 3,
+    },
+    include: { learningState: true },
+  });
+};
 
 export const addWord = async (input: AddWordInput) => {
   const existing = await prisma.vocabularyWord.findUnique({
@@ -32,10 +84,18 @@ export const addWord = async (input: AddWordInput) => {
         },
       },
     },
-    include: {
-      learningState: true,
-    },
+    include: { learningState: true },
   });
+
+  // Hybrid AI: wait up to AI_WAIT_MS; on success store content, otherwise leave PENDING (aiData = null).
+  const aiData = await withTimeout(
+    generateWordContent(input.word, input.partOfSpeech, input.sourceContext),
+    AI_WAIT_MS
+  );
+
+  if (aiData) {
+    return persistAIData(word.id, aiData);
+  }
 
   return word;
 };
@@ -50,6 +110,7 @@ export const listWords = async (params: {
 }) => {
   const { search, status, sort, order, page, limit } = params;
   const skip = (page - 1) * limit;
+  const sortField = (ALLOWED_SORT_FIELDS as readonly string[]).includes(sort) ? sort : 'dateAdded';
 
   const where: Record<string, unknown> = { isArchived: false };
 
@@ -65,7 +126,7 @@ export const listWords = async (params: {
     prisma.vocabularyWord.findMany({
       where,
       include: { learningState: true },
-      orderBy: { [sort]: order },
+      orderBy: { [sortField]: order },
       skip,
       take: limit,
     }),
@@ -87,8 +148,6 @@ export const getWord = async (id: string) => {
   const word = await prisma.vocabularyWord.findUnique({
     where: { id },
     include: {
-      meanings: true,
-      exercises: true,
       learningState: true,
       reviews: {
         orderBy: { createdAt: 'desc' },
@@ -104,7 +163,66 @@ export const getWord = async (id: string) => {
   return word;
 };
 
+export const getExercises = async (wordId: string) => {
+  const word = await prisma.vocabularyWord.findUnique({
+    where: { id: wordId },
+  });
+
+  if (!word) {
+    throw new ApiError(404, 'NOT_FOUND', 'Word not found');
+  }
+
+  const aiData = (word.aiData as unknown as AIData | null) ?? null;
+  const all = aiData?.exercises ?? [];
+
+  const examples = shuffle(all.filter((e) => e.type === 'EXAMPLE'));
+  const interactive = shuffle(all.filter((e) => e.type !== 'EXAMPLE'));
+
+  const target = Math.min(3, all.length);
+  const picked: AIExercise[] = [];
+
+  // Always include at least 1 EXAMPLE when available
+  if (examples.length > 0) {
+    picked.push(examples[0]);
+  }
+
+  // Fill with interactive exercises up to the target count
+  for (const exercise of interactive) {
+    if (picked.length >= target) break;
+    picked.push(exercise);
+  }
+
+  // Top up from any remaining exercise
+  for (const exercise of shuffle(all)) {
+    if (picked.length >= target) break;
+    if (!picked.includes(exercise)) picked.push(exercise);
+  }
+
+  return {
+    wordId: word.id,
+    word: word.word,
+    exercises: picked.map((e, i) => ({
+      id: `${word.id}-ex-${i}`,
+      type: e.type,
+      content: e.content ?? null,
+      context: e.context ?? null,
+      question: e.question ?? null,
+      options: e.options ?? null,
+      correctAnswer: e.correctAnswer ?? null,
+      explanation: e.explanation ?? null,
+    })),
+  };
+};
+
 export const deleteWord = async (id: string) => {
+  const existing = await prisma.vocabularyWord.findUnique({
+    where: { id },
+  });
+
+  if (!existing) {
+    throw new ApiError(404, 'NOT_FOUND', 'Word not found');
+  }
+
   const word = await prisma.vocabularyWord.update({
     where: { id },
     data: { isArchived: true },
@@ -122,5 +240,12 @@ export const regenerateAI = async (id: string) => {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
 
-  return { id: word.id, aiContent: { status: 'generating' } };
+  const aiData = await generateWordContent(
+    word.word,
+    word.partOfSpeech ?? undefined,
+    word.sourceContext ?? undefined
+  );
+  await persistAIData(id, aiData);
+
+  return getWord(id);
 };

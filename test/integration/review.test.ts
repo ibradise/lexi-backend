@@ -1,13 +1,36 @@
 import request from 'supertest';
 import app from '../../src/app';
+import { generateWordContent } from '../../src/services/ai.service';
+
+jest.mock('../../src/services/ai.service', () => ({
+  generateWordContent: jest.fn(),
+  getAIModel: jest.fn().mockReturnValue('gemini-3.5-flash'),
+}));
+
+const WORD = `reviewtest${Date.now()}`;
 
 describe('Review API', () => {
   let wordId: string;
 
   beforeAll(async () => {
-    const res = await request(app)
-      .post('/api/vocabulary')
-      .send({ word: 'reviewtest' });
+    (generateWordContent as jest.Mock).mockResolvedValue({
+      meanings: [{ meaning: 'a review test word', isPrimary: true }],
+      exercises: [
+        {
+          type: 'MULTIPLE_CHOICE',
+          question: 'What does it mean?',
+          options: ['a', 'b', 'c', 'd'],
+          correctAnswer: 'a',
+          explanation: 'because',
+        },
+      ],
+      synonyms: [],
+      antonyms: [],
+      pronunciation: '',
+      difficulty: 3,
+    });
+
+    const res = await request(app).post('/api/vocabulary').send({ word: WORD });
     wordId = res.body.data.id;
   });
 
@@ -29,11 +52,25 @@ describe('Review API', () => {
     });
 
     it('should return 400 for missing fields', async () => {
-      const res = await request(app)
-        .post(`/api/review/${wordId}/submit`)
-        .send({});
+      const res = await request(app).post(`/api/review/${wordId}/submit`).send({});
 
       expect(res.status).toBe(400);
+    });
+
+    it('should return 400 for an invalid exerciseType', async () => {
+      const res = await request(app)
+        .post(`/api/review/${wordId}/submit`)
+        .send({ exerciseType: 'NOT_A_TYPE', result: 'CORRECT' });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 404 for a non-existent word', async () => {
+      const res = await request(app)
+        .post('/api/review/nonexistent/submit')
+        .send({ exerciseType: 'MULTIPLE_CHOICE', result: 'CORRECT' });
+
+      expect(res.status).toBe(404);
     });
 
     it('should update score after multiple reviews', async () => {

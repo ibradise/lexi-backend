@@ -1,7 +1,11 @@
 import { Request, Response } from 'express';
+import { ExerciseType, ReviewResult } from '@prisma/client';
 import * as reviewService from '../services/review.service';
 import { catchAsync } from '../utils/catchAsync';
 import { ApiError } from '../utils/ApiError';
+
+const VALID_EXERCISE_TYPES = Object.values(ExerciseType) as string[];
+const VALID_RESULTS = Object.values(ReviewResult) as string[];
 
 export const getTodayReview = catchAsync(async (_req: Request, res: Response) => {
   const result = await reviewService.getTodayReview();
@@ -14,6 +18,14 @@ export const submitReview = catchAsync(async (req: Request, res: Response) => {
 
   if (!exerciseType || !result) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'exerciseType and result are required');
+  }
+
+  if (!VALID_EXERCISE_TYPES.includes(exerciseType)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', `Invalid exerciseType: ${exerciseType}`);
+  }
+
+  if (!VALID_RESULTS.includes(result)) {
+    throw new ApiError(400, 'VALIDATION_ERROR', `Invalid result: ${result}`);
   }
 
   const reviewResult = await reviewService.submitReview({

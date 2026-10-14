@@ -13,8 +13,8 @@
 | Language | TypeScript |
 | ORM | Prisma |
 | Database | PostgreSQL (Prisma Data Platform free tier) |
-| Validation | Zod |
-| AI | Gemini API |
+| Validation | Manual (in controllers) |
+| AI | Gemini API (`gemini-3.5-flash`) |
 
 ---
 
@@ -24,12 +24,14 @@
 
 ```
 VocabularyWord
-├── WordMeaning (1:N)
-├── Example (1:N)
+├── aiData (Json)        — full AI response: meanings, exercises, synonyms, antonyms, pronunciation, difficulty
 ├── LearningState (1:1)
-├── Review (1:N)
-└── AICacheEntry (1:N)
+└── Review (1:N)
 ```
+
+Only three tables exist: `VocabularyWord`, `LearningState`, `Review`.
+The whole AI response for a word lives in the single `aiData` JSON column
+(plus denormalized `aiModel`, `aiUpdatedAt`, `pronunciation`, `difficulty`).
 
 ---
 
@@ -41,6 +43,7 @@ VocabularyWord
 POST   /api/vocabulary              — Add word
 GET    /api/vocabulary              — List (search, filter, paginate)
 GET    /api/vocabulary/:id          — Detail
+GET    /api/vocabulary/:id/exercises — 2-3 review exercises (with correctAnswer)
 DELETE /api/vocabulary/:id          — Soft delete
 POST   /api/vocabulary/:id/regenerate-ai
 ```
@@ -67,11 +70,12 @@ GET    /api/dashboard               — Dashboard data
 
 | Signal | Weight |
 |--------|--------|
-| Review accuracy | 40% |
-| Interval length | 25% |
+| Review accuracy | 65% |
 | Response time | 15% |
 | Hint usage | 10% |
 | Repetition count | 10% |
+
+(Computed over the last 10 reviews — see `src/services/scoring.service.ts`.)
 
 ### SM-2 Interval
 
@@ -87,10 +91,12 @@ Partial: interval = previousInterval × 0.5
 
 ### Provider: Gemini API
 
-- Model: gemini-1.5-flash (free tier)
+- Model: `gemini-3.5-flash`
 - API key stored in .env (server-side only)
-- Response cached in AICacheEntry table
+- `responseMimeType: 'application/json'`, `maxOutputTokens: 3000`
 - Retry with exponential backoff (3 attempts)
+- No external cache table: the generated result is stored on `VocabularyWord.aiData`
+- `addWord` waits up to 8s; on timeout/failure the word stays PENDING (`aiData = null`)
 
 ### Prompt Structure
 
@@ -101,8 +107,11 @@ Context: {sourceContext}
 
 Generate JSON:
 {
-  "meanings": [...],
-  "examples": [...],
+  "meanings": [{ "meaning": "...", "isPrimary": true }],
+  "exercises": [
+    { "type": "EXAMPLE", "content": "...", "context": "..." },
+    { "type": "MULTIPLE_CHOICE", "question": "...", "options": ["..."], "correctAnswer": "...", "explanation": "..." }
+  ],
   "synonyms": [...],
   "antonyms": [...],
   "pronunciation": "...",

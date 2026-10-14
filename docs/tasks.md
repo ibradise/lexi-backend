@@ -6,59 +6,60 @@
 
 > Before building: Read `../prd/WORKFLOW.md` → `../prd/requirements.md` → `../prd/architecture.md` → `docs/tasks.md` → `docs/architecture.md`
 
-## Phase 8.0: Baseline Fixes
+# TASK: Single AI-response storage (3-table schema) + working add-word / review flows
 
-### Done
-- [x] Prisma schema: add `Exercise` model (replaces `Example`; `type` distinguishes EXAMPLE + questions)
-- [x] Prisma migration: `20261012074041_exercise_model_replacement` (drops `Example`, creates `Exercise`) — applied
-- [x] AI prompt (`src/prompts/ai.prompts.ts`): `examples` → `exercises` (EXAMPLE + MULTIPLE_CHOICE)
-- [x] AI service (`src/services/ai.service.ts`): `AIContent.exercises`, `parseAIResponse` validation, `responseMimeType: 'application/json'`, `maxOutputTokens` 1024 → 3000
-- [x] `src/app.ts`: mount `dashboardRoutes` → `GET /api/dashboard` returns 200
-- [x] `package.json`: test script `"jest"`; removed unused deps (`bcryptjs`, `jsonwebtoken`, `zod`, `pg`, `@prisma/adapter-pg`, `@types/bcryptjs`, `@types/jsonwebtoken`)
-- [x] `.env.example`: `PORT=3001`, JWT secrets removed
-- [x] `getWord`: include `exercises` instead of `examples`
+**Goal:** Store one word's entire AI response in a single JSON column on `VocabularyWord`
+(`aiData`), drop the `WordMeaning` / `Exercise` / `AICacheEntry` tables, keep only
+`VocabularyWord`, `LearningState`, `Review`, and make the add-word → AI-generate → review
+flows fully work with no broken or missing pieces.
 
-### Not done (still pending)
-- [ ] `addWord(input)`: hybrid AI call (wait ~8s → READY, else PENDING)
-- [ ] `persistAIContent(wordId, content)`: `$transaction` writing `WordMeaning[]` + `Exercise[]`
-- [ ] `regenerateAI(id)`: delete old meanings/exercises, call AI, persist, return `{ aiStatus }` (still a stub)
-- [ ] `deleteWord`: existence check → 404 (currently Prisma P2025 → 500)
-- [ ] `listWords`: whitelist allowed `sort` fields (`dateAdded`, `word`)
-- [ ] `src/controllers/vocabulary.controller.ts`: `getExercises` controller
-- [ ] `src/routes/vocabulary.routes.ts`: `GET /:id/exercises` route
+## Schema
+- [x] `VocabularyWord`: add `aiData Json?`, `aiModel String?`, `aiUpdatedAt DateTime?`; keep `pronunciation`, `difficulty`
+- [x] Drop models: `WordMeaning`, `Exercise`, `AICacheEntry`
+- [x] `ExerciseType` enum: add `EXAMPLE`
+- [x] Migration created + applied; Prisma Client regenerated
 
-## Phase 8.1: Exercise Model + AI-Generated Exercises
+## Types
+- [x] Add `src/types/ai.ts` with `AIData` (meanings, exercises, synonyms, antonyms, pronunciation, difficulty)
 
-### Done
-- [x] `Exercise` model + migration (above)
-- [x] AI prompt + AI service for new `exercises` format (above)
+## AI service (`src/services/ai.service.ts`)
+- [x] Remove `AICacheEntry` caching + `crypto`/promptHash code
+- [x] `generateWordContent(word, partOfSpeech?, sourceContext?)` is a pure call returning `AIData`
+- [x] Keep `parseAIResponse` validation; JSON mode; `gemini-3.5-flash`; 3000 tokens; retry
 
-### Not done (still pending)
-- [ ] `getExercises(wordId)`: return 2-3 random exercises (≥1 EXAMPLE if available), each with `correctAnswer` for client-side validation
-- [ ] Persist AI content (meanings → `WordMeaning`, examples/questions → `Exercise`)
-- [ ] Store `pronunciation` / `difficulty` on `VocabularyWord`
-- [ ] Persist synonyms / antonyms — **no schema field/table exists yet**
-- [ ] Tests updated for new schema + endpoints
-- [ ] Docs updated: `AGENTS.md`, `docs/architecture.md`, `docs/IMPLEMENTATION.md`
+## Vocabulary service (`src/services/vocabulary.service.ts`)
+- [x] `addWord`: create word + LearningState, hybrid AI (wait ~8s), on success `persistAIData`, else leave PENDING (`aiData = null`)
+- [x] `persistAIData(wordId, data)`: write `aiData`, `aiModel`, `aiUpdatedAt`, copy `pronunciation`/`difficulty`
+- [x] `getWord`: drop `meanings`/`exercises` includes; keep `learningState` + `reviews`
+- [x] `getExercises(wordId)`: 404 if missing; read `aiData.exercises`; return 2-3 (≥1 EXAMPLE if present) with `correctAnswer`
+- [x] `regenerateAI(id)`: 404 if missing; regenerate + `persistAIData`; return updated word
+- [x] `deleteWord`: existence check → 404
+- [x] `listWords`: whitelist sort fields (`dateAdded`, `word`)
 
-## Phase 8.2: Review Flow
-- [ ] `submitReview(input)`: verify contract (`exerciseType`, `result`, `responseTimeMs`, `userAnswer`, `hintUsed`); no `exerciseId`; scoring/SM-2 unchanged
+## Controller + routes
+- [x] `vocabulary.controller.ts`: add `getExercises`
+- [x] `vocabulary.routes.ts`: add `GET /:id/exercises`
 
-## Phase 9: Polish + Mobile Prep
-- [ ] Consistent JSON response format on new endpoints
-- [ ] `npm test` green after schema changes
-- [ ] `npm run dev` starts cleanly
+## Review flow
+- [x] `review.service.ts`: proper `ExerciseType`/`ReviewResult` types; wrap write flow in `$transaction`
+- [x] `review.controller.ts`: validate `exerciseType` / `result` → 400 on invalid
 
-## Phase 10: Final cleanup
-- [ ] STOP and ask user explicit approval before clearing `docs/tasks.md`
-- [ ] Verify `.env` has no exposed secrets
+## Housekeeping
+- [x] Move `@prisma/client` to `dependencies` in `package.json`
 
-## Open Design Question
-- Synonyms/antonyms are returned by the AI (`AIContent`) but have **no storage** in the schema.
-  Options: (1) add `String[]` columns on `VocabularyWord`, (2) drop from interface + prompt, (3) `WordRelation` table.
+## Tests
+- [x] `vocabulary.test.ts`: mock AI, unique words, assert `aiData`, test `GET /:id/exercises`, delete 404
+- [x] `review.test.ts`: mock AI, unique words, keep coverage; invalid enum → 400
+- [x] `npm test` green (36/36 passing)
 
-## Current Status
-- **TypeScript**: compiles cleanly (`tsc --noEmit` passes)
-- **Dashboard endpoint**: `GET /api/dashboard` → 200
-- **Committed changes**: schema + migration, AI prompt, AI service, dashboard mount, package.json, `.env.example`, `getWord` include fix
-- **Phase 8.1 features**: NOT complete — AI persistence (`addWord`/`persistAIContent`/`getExercises`/`regenerateAI`), controller/route, tests, docs all pending
+## Verification
+- [x] `npx tsc --noEmit` clean
+- [x] `npx prisma migrate status` up to date
+
+## Docs
+- [x] `docs/IMPLEMENTATION.md`: record what was built (3-table schema, aiData, endpoints)
+- [x] `docs/architecture.md`: update data model, AI integration, scoring weights, endpoints
+- [x] `AGENTS.md`: update entities, endpoints, env/stack drift
+
+## Status
+- [x] All items above done → STOP and report for user review (do NOT clear this file, do NOT commit)

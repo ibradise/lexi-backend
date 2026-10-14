@@ -62,3 +62,41 @@
 - regenerateAI endpoint exists but is non-functional (stub)
 - submitReview validates client-side (should validate server-side)
 - Unused packages to remove: bcryptjs, jsonwebtoken, @prisma/adapter-pg, pg, zod
+
+---
+
+## 2026-10-14 — Single AI-response storage (schema migration)
+- [x] `VocabularyWord` now stores the whole AI response in one `aiData Json?` column (+ `aiModel`, `aiUpdatedAt`)
+- [x] Dropped models/tables: `WordMeaning`, `Exercise`, `AICacheEntry`
+- [x] `ExerciseType` enum: added `EXAMPLE`
+- [x] Migration `20261013213221_ai_data_json` created + applied
+- [x] `generateWordContent` is now a pure call returning `AIData` (cache layer removed)
+- [x] `addWord`: creates word, waits up to 8s for AI, then persists AI data (else stays PENDING with `aiData = null`)
+- [x] `regenerateAI`: functional — regenerates and overwrites `aiData`
+- [x] `getExercises`: returns 2-3 exercises (always ≥1 EXAMPLE when available) from `aiData.exercises`
+- [x] `deleteWord`: returns 404 for missing word (was 500)
+- [x] `listWords`: sort field whitelist (`dateAdded`, `word`)
+- [x] `submitReview`: wraps review + learning-state writes in a `$transaction`; enum validation → 400
+- [x] `@prisma/client` moved to `dependencies`
+- [x] Tests updated (mock AI, unique words, new endpoints) — 36 passing
+
+## API Endpoints Implemented (current)
+- POST /api/vocabulary — add word (triggers AI generation; returns word with `aiData` when ready)
+- GET /api/vocabulary — list with search, filter, paginate
+- GET /api/vocabulary/:id — word detail with `aiData`, learning state, reviews
+- GET /api/vocabulary/:id/exercises — 2-3 exercises for review (includes `correctAnswer`)
+- DELETE /api/vocabulary/:id — soft delete (404 if missing)
+- POST /api/vocabulary/:id/regenerate-ai — regenerate AI content
+- GET /api/review/today — today's review queue (SM-2 priority)
+- POST /api/review/:wordId/submit — submit answer, update score (atomic)
+- GET /api/review/history — review history with pagination
+- GET /api/dashboard — dashboard data
+
+## Database Tables (current)
+- VocabularyWord (with `aiData` JSON), LearningState, Review
+
+## Notes
+- `aiData` shape: `{ meanings[], exercises[], synonyms[], antonyms[], pronunciation, difficulty }`
+- Replaces the earlier `WordMeaning`/`Example`/`Exercise`/`AICacheEntry` tables
+- Gemini model: `gemini-3.5-flash` (JSON response mode, `maxOutputTokens` 3000)
+- AI is best-effort on add: on timeout/failure the word is saved as PENDING and can be regenerated

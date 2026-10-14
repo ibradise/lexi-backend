@@ -1,27 +1,13 @@
-import { prisma } from '../lib/prisma';
 import { env } from '../config/env';
-import crypto from 'crypto';
 import { buildWordPrompt } from '../prompts/ai.prompts';
 import { ApiError } from '../utils/ApiError';
+import { AIData } from '../types/ai';
 
-interface AIContent {
-  meanings: { meaning: string; isPrimary: boolean }[];
-  exercises: {
-    type: 'EXAMPLE' | 'MULTIPLE_CHOICE';
-    content?: string;      // EXAMPLE: the sentence
-    context?: string;      // EXAMPLE: context label
-    question?: string;     // MULTIPLE_CHOICE: the prompt
-    options?: string[];    // MULTIPLE_CHOICE: 4 simple-English definitions
-    correctAnswer?: string;// MULTIPLE_CHOICE: correct definition text
-    explanation?: string;  // MULTIPLE_CHOICE: why
-  }[];
-  synonyms: string[];
-  antonyms: string[];
-  pronunciation: string;
-  difficulty: number;
-}
+const AI_MODEL = 'gemini-3.5-flash';
 
-const parseAIResponse = (text: string): AIContent => {
+export const getAIModel = (): string => AI_MODEL;
+
+const parseAIResponse = (text: string): AIData => {
   let jsonStr = text.trim();
   jsonStr = jsonStr.replace(/```json\n?/g, '').replace(/```\n?/g, '');
   const data = JSON.parse(jsonStr);
@@ -40,7 +26,12 @@ const parseAIResponse = (text: string): AIContent => {
         throw new Error('Invalid EXAMPLE exercise: missing content or context');
       }
     } else if (exercise.type === 'MULTIPLE_CHOICE') {
-      if (!exercise.question || !exercise.options || exercise.options.length !== 4 || !exercise.correctAnswer) {
+      if (
+        !exercise.question ||
+        !exercise.options ||
+        exercise.options.length !== 4 ||
+        !exercise.correctAnswer
+      ) {
         throw new Error('Invalid MULTIPLE_CHOICE exercise: missing question, 4 options, or correctAnswer');
       }
     }
@@ -65,7 +56,7 @@ const callGeminiWithRetry = async (prompt: string): Promise<string> => {
       const timeout = setTimeout(() => controller.abort(), 30000);
 
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${env.GEMINI_API_KEY}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL}:generateContent?key=${env.GEMINI_API_KEY}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -87,7 +78,7 @@ const callGeminiWithRetry = async (prompt: string): Promise<string> => {
         throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
       }
 
-      const result = await response.json() as {
+      const result = (await response.json()) as {
         candidates?: { content?: { parts?: { text?: string }[] } }[];
       };
 
@@ -109,37 +100,20 @@ const callGeminiWithRetry = async (prompt: string): Promise<string> => {
   throw lastError || new Error('Gemini API failed after 3 retries');
 };
 
+/**
+ * Pure AI call: builds the prompt, calls Gemini, validates and returns AIData.
+ * Caching/persistence is the caller's responsibility (see vocabulary.service).
+ */
 export const generateWordContent = async (
-  wordId: string,
   word: string,
   partOfSpeech?: string,
   sourceContext?: string
-): Promise<AIContent> => {
+): Promise<AIData> => {
   const prompt = buildWordPrompt(word, partOfSpeech, sourceContext);
-  const promptHash = crypto.createHash('sha256').update(prompt).digest('hex');
-
-  const cached = await prisma.aICacheEntry.findUnique({
-    where: { wordId_promptHash: { wordId, promptHash } },
-  });
-
-  if (cached) {
-    return cached.response as unknown as AIContent;
-  }
 
   try {
     const responseText = await callGeminiWithRetry(prompt);
-    const content = parseAIResponse(responseText);
-
-    await prisma.aICacheEntry.create({
-      data: {
-        wordId,
-        promptHash,
-        response: content as object,
-        model: 'gemini-3.5-flash',
-      },
-    });
-
-    return content;
+    return parseAIResponse(responseText);
   } catch (err) {
     throw new ApiError(
       502,

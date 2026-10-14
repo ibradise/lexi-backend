@@ -6,6 +6,7 @@ const router = Router();
 router.post('/', vocabularyController.addWord);
 router.get('/', vocabularyController.listWords);
 router.get('/:id', vocabularyController.getWord);
+router.get('/:id/exercises', vocabularyController.getExercises);
 router.delete('/:id', vocabularyController.deleteWord);
 router.post('/:id/regenerate-ai', vocabularyController.regenerateAI);
 

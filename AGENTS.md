@@ -43,7 +43,7 @@ Lexi backend — Express + TypeScript API for the Lexi vocabulary learning app.
 - Read `docs/architecture.md` — current code structure
 - Follow the existing code structure (routes → controllers → services)
 - Use TypeScript strict mode
-- Validate all inputs with Zod
+- Validate inputs in controllers (no Zod dependency)
 - Return consistent JSON response format
 - Write tests for new endpoints
 - Update `docs/IMPLEMENTATION.md` after building — what was actually built
@@ -93,22 +93,19 @@ lexi-backend/
 │   ├── app.ts             # Express app setup
 │   ├── config/
 │   │   └── env.ts         # Environment variables
+│   ├── types/
+│   │   └── ai.ts          # AIData shape (aiData jsonb)
 │   ├── middleware/
-│   │   ├── auth.ts        # Auth middleware (future)
-│   │   ├── errorHandler.ts
-│   │   └── validate.ts    # Zod validation
+│   │   └── errorHandler.ts
 │   ├── routes/
-│   │   ├── auth.routes.ts
 │   │   ├── vocabulary.routes.ts
 │   │   ├── review.routes.ts
 │   │   └── dashboard.routes.ts
 │   ├── controllers/
-│   │   ├── auth.controller.ts
 │   │   ├── vocabulary.controller.ts
 │   │   ├── review.controller.ts
 │   │   └── dashboard.controller.ts
 │   ├── services/
-│   │   ├── auth.service.ts
 │   │   ├── vocabulary.service.ts
 │   │   ├── review.service.ts
 │   │   ├── scoring.service.ts
@@ -160,10 +157,11 @@ Error response:
 
 ```env
 DATABASE_URL="postgresql://..."
-JWT_SECRET="..."
 GEMINI_API_KEY="..."
-PORT=3000
+PORT=3001
 ```
+
+(No auth in MVP — no JWT secrets.)
 
 ---
 
@@ -174,6 +172,7 @@ PORT=3000
 | POST | /api/vocabulary | Add a new word |
 | GET | /api/vocabulary | List words (search, filter, paginate) |
 | GET | /api/vocabulary/:id | Word detail |
+| GET | /api/vocabulary/:id/exercises | Review exercises (2-3, with correctAnswer) |
 | DELETE | /api/vocabulary/:id | Soft delete word |
 | POST | /api/vocabulary/:id/regenerate-ai | Regenerate AI content |
 | GET | /api/review/today | Today's review queue |
@@ -188,21 +187,20 @@ PORT=3000
 ### Tech Stack
 - Node.js + Express + TypeScript
 - Prisma ORM + PostgreSQL (Prisma Data Platform free tier)
-- Gemini API (gemini-1.5-flash)
-- Zod for validation
+- Gemini API (`gemini-3.5-flash`)
+- Manual validation in controllers
 
 ### Database Entities
-- VocabularyWord → WordMeaning (1:N)
-- VocabularyWord → Example (1:N)
 - VocabularyWord → LearningState (1:1)
 - VocabularyWord → Review (1:N)
-- VocabularyWord → AICacheEntry (1:N)
+- `VocabularyWord.aiData` (Json) — the whole AI response (meanings, exercises, synonyms, antonyms, pronunciation, difficulty)
 
 ### Knowledge Scoring
-- Review accuracy (40%), interval length (25%), response time (15%), hint usage (10%), repetition count (10%)
+- Review accuracy (65%), response time (15%), hint usage (10%), repetition count (10%) over the last 10 reviews
 - SM-2 interval: correct → interval × easeFactor, incorrect → reset to 1 day
 
 ### AI Integration
 - Gemini API key stored in .env (server-side only)
-- Response cached in AICacheEntry table
+- JSON response mode, 3000 max output tokens
+- Result stored on `VocabularyWord.aiData` (no separate cache table)
 - Retry with exponential backoff (3 attempts)
