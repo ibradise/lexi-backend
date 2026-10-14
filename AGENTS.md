@@ -110,6 +110,7 @@ lexi-backend/
 │   │   ├── review.service.ts
 │   │   ├── scoring.service.ts
 │   │   ├── dashboard.service.ts
+│   │   ├── aiQueue.service.ts    # background AI generation worker + persistAIData
 │   │   └── ai.service.ts
 │   ├── prompts/
 │   │   └── ai.prompts.ts  # Gemini prompt templates
@@ -169,7 +170,7 @@ PORT=3001
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | /api/vocabulary | Add a new word |
+| POST | /api/vocabulary | Add word — single (`{ word }` → 201) or bulk (`{ words[] }` → 202, async AI) |
 | GET | /api/vocabulary | List words (search, filter, paginate) |
 | GET | /api/vocabulary/:id | Word detail |
 | GET | /api/vocabulary/:id/exercises | Review exercises (2-3 multiple-choice, with correctAnswer) |
@@ -204,3 +205,6 @@ PORT=3001
 - JSON response mode, 3000 max output tokens
 - Result stored on `VocabularyWord.aiData` (no separate cache table)
 - Retry with exponential backoff (3 attempts)
+- `addWord` (single) waits up to 8s for AI; **bulk add** creates words immediately and generates
+  AI in the background via `aiQueue.service.ts` (concurrency 3, idempotent, boot sweep for PENDING)
+- `aiReady` (`aiModel !== null`) is exposed on review-queue and list responses

@@ -33,6 +33,11 @@ Only three tables exist: `VocabularyWord`, `LearningState`, `Review`.
 The whole AI response for a word lives in the single `aiData` JSON column
 (plus denormalized `aiModel`, `aiUpdatedAt`, `pronunciation`, `difficulty`).
 
+> **Query projections:** queries fetch only the columns they need via `select`
+> (or `omit: { aiData: true }` for lists) so the heavy `aiData` jsonb is never
+> loaded when unused. Full `aiData` is returned only by `GET /api/vocabulary/:id`
+> and used by `getExercises` / `regenerateAI`.
+
 ---
 
 ## API Design
@@ -40,8 +45,8 @@ The whole AI response for a word lives in the single `aiData` JSON column
 ### Vocabulary Endpoints
 
 ```
-POST   /api/vocabulary              — Add word
-GET    /api/vocabulary              — List (search, filter, paginate)
+POST   /api/vocabulary              — Add word (single `{ word }` → 201, or bulk `{ words[] }` → 202)
+GET    /api/vocabulary              — List (search, filter, paginate; includes `aiReady`)
 GET    /api/vocabulary/:id          — Detail
 GET    /api/vocabulary/:id/exercises — 2-3 review exercises (with correctAnswer)
 DELETE /api/vocabulary/:id          — Soft delete
@@ -97,6 +102,24 @@ Partial: interval = previousInterval × 0.5
 - Retry with exponential backoff (3 attempts)
 - No external cache table: the generated result is stored on `VocabularyWord.aiData`
 - `addWord` waits up to 8s; on timeout/failure the word stays PENDING (`aiData = null`)
+
+### Background worker (`src/services/aiQueue.service.ts`)
+
+Bulk add must not block on AI, because the user may close the app immediately.
+
+```
+POST /api/vocabulary { words: [...] }
+  → normalize + dedupe → create words + NEW LearningState (transaction)
+  → 202 Accepted { added, duplicates, invalid }
+  → enqueueAIGeneration(ids)            (fire-and-forget, concurrency 3)
+       └─ generateWordContent → persistAIData   (idempotent: skips words with aiData)
+  → on boot: sweepPendingWords() re-enqueues every `aiModel = null` word
+```
+
+- In-memory queue, concurrency **3**; failures logged and left PENDING (re-runnable)
+- `aiReady` (`aiModel !== null`) is surfaced on review-queue and list responses so the
+  client can show "preparing…" while content is still generating
+- Words are visible in `GET /review/today` (NEW queue) as soon as they are created
 
 ### Prompt Structure
 

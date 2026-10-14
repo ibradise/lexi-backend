@@ -4,7 +4,30 @@ import { catchAsync } from '../utils/catchAsync';
 import { ApiError } from '../utils/ApiError';
 
 export const addWord = catchAsync(async (req: Request, res: Response) => {
-  const { word, partOfSpeech, sourceContext, sourceUrl, sourceTitle } = req.body;
+  const { word, words, partOfSpeech, sourceContext, sourceUrl, sourceTitle } = req.body;
+
+  if (Array.isArray(words)) {
+    if (words.length === 0) {
+      throw new ApiError(400, 'VALIDATION_ERROR', 'Words array is empty');
+    }
+    if (words.length > vocabularyService.MAX_BULK_WORDS) {
+      throw new ApiError(
+        400,
+        'VALIDATION_ERROR',
+        `Too many words (max ${vocabularyService.MAX_BULK_WORDS} per request)`
+      );
+    }
+
+    const result = await vocabularyService.addWords(words);
+
+    res.status(202).json({
+      success: true,
+      data: result,
+      error: null,
+      meta: null,
+    });
+    return;
+  }
 
   if (!word || typeof word !== 'string' || word.trim().length === 0) {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Word is required');

@@ -88,13 +88,29 @@ describe('Review API', () => {
   });
 
   describe('GET /api/review/today', () => {
-    it('should return review queue', async () => {
+    it('should return a lightweight review queue (no aiData)', async () => {
+      await request(app).post('/api/vocabulary').send({ word: `queue${Date.now()}` });
+
       const res = await request(app).get('/api/review/today');
 
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('queue');
       expect(res.body.data).toHaveProperty('totalDue');
+      expect(Array.isArray(res.body.data.queue)).toBe(true);
+      expect(res.body.data.queue.length).toBeGreaterThan(0);
+
+      for (const item of res.body.data.queue) {
+        expect(item).not.toHaveProperty('aiData');
+        expect(typeof item.aiReady).toBe('boolean');
+        expect(Object.keys(item).sort()).toEqual([
+          'aiReady',
+          'knowledgeScore',
+          'priority',
+          'status',
+          'word',
+          'wordId',
+        ]);
+      }
     });
   });
 

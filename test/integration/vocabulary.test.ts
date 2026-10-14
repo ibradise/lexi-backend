@@ -68,6 +68,77 @@ describe('Vocabulary API', () => {
     });
   });
 
+  describe('POST /api/vocabulary (bulk)', () => {
+    it('should bulk add words and generate AI content in the background', async () => {
+      const base = `bulk${Date.now()}`;
+      const names = [`${base}a`, `${base}b`, `${base}c`];
+
+      const res = await request(app).post('/api/vocabulary').send({ words: names });
+
+      expect(res.status).toBe(202);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.added).toHaveLength(3);
+      expect(res.body.data.added.map((w: { word: string }) => w.word).sort()).toEqual(
+        [...names].sort()
+      );
+      for (const item of res.body.data.added) {
+        expect(item.id).toBeTruthy();
+        expect(item.status).toBe('PENDING');
+      }
+
+      // The background worker persists aiData after the 202 response.
+      const firstId = res.body.data.added[0].id;
+      let ready = false;
+      for (let i = 0; i < 50 && !ready; i++) {
+        const get = await request(app).get(`/api/vocabulary/${firstId}`);
+        ready = Boolean(get.body.data.aiData);
+        if (!ready) await new Promise((r) => setTimeout(r, 100));
+      }
+      expect(ready).toBe(true);
+    });
+
+    it('should split on separators and de-duplicate the batch', async () => {
+      const t = Date.now();
+      const words = [`alpha${t}, beta${t}\ngamma${t} delta${t}`, `alpha${t}`];
+
+      const res = await request(app).post('/api/vocabulary').send({ words });
+
+      expect(res.status).toBe(202);
+      const added = res.body.data.added.map((w: { word: string }) => w.word);
+      expect(added.sort()).toEqual([`alpha${t}`, `beta${t}`, `delta${t}`, `gamma${t}`].sort());
+      expect(res.body.data.duplicates).toContain(`alpha${t}`);
+    });
+
+    it('should report already-existing words as duplicates', async () => {
+      const t = Date.now();
+      const existing = `exist${t}`;
+      await request(app).post('/api/vocabulary').send({ word: existing });
+
+      const fresh = `fresh${t}`;
+      const res = await request(app).post('/api/vocabulary').send({ words: [existing, fresh] });
+
+      expect(res.status).toBe(202);
+      expect(res.body.data.duplicates).toContain(existing);
+      expect(res.body.data.added.map((w: { word: string }) => w.word)).toContain(fresh);
+    });
+
+    it('should return 400 for an empty words array', async () => {
+      const res = await request(app).post('/api/vocabulary').send({ words: [] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('should return 400 when exceeding the batch limit', async () => {
+      const words = Array.from({ length: 51 }, (_, i) => `overflow${i}`);
+
+      const res = await request(app).post('/api/vocabulary').send({ words });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+  });
+
   describe('GET /api/vocabulary', () => {
     it('should list words', async () => {
       const res = await request(app).get('/api/vocabulary');
@@ -76,6 +147,8 @@ describe('Vocabulary API', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data).toBeInstanceOf(Array);
       expect(res.body.meta).toHaveProperty('total');
+      expect(res.body.data[0]).toHaveProperty('aiReady');
+      expect(res.body.data[0]).not.toHaveProperty('aiData');
     });
 
     it('should search words', async () => {

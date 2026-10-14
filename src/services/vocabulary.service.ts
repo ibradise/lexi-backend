@@ -1,10 +1,12 @@
-import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
-import { generateWordContent, getAIModel } from './ai.service';
+import { generateWordContent } from './ai.service';
 import { AIData } from '../types/ai';
+import { persistAIData, enqueueAIGeneration } from './aiQueue.service';
 
 const AI_WAIT_MS = 8000;
+export const MAX_BULK_WORDS = 50;
+const MAX_WORD_LENGTH = 100;
 const ALLOWED_SORT_FIELDS = ['dateAdded', 'word'] as const;
 
 interface AddWordInput {
@@ -15,10 +17,7 @@ interface AddWordInput {
   sourceTitle?: string;
 }
 
-/**
- * Resolves with the promise value, or `null` if it rejects or does not settle within `ms`.
- * Clears the timer so it never keeps the process alive.
- */
+// Resolves with the promise value, or `null` if it rejects or does not settle within `ms`. Clears the timer so it never keeps the process alive.
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | null> =>
   new Promise((resolve) => {
     const timer = setTimeout(() => resolve(null), ms);
@@ -41,24 +40,6 @@ const shuffle = <T>(items: T[]): T[] => {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-};
-
-/**
- * Writes the AI response onto the word row (single jsonb column) plus the
- * denormalized pronunciation/difficulty columns.
- */
-const persistAIData = async (wordId: string, data: AIData) => {
-  return prisma.vocabularyWord.update({
-    where: { id: wordId },
-    data: {
-      aiData: data as unknown as Prisma.InputJsonValue,
-      aiModel: getAIModel(),
-      aiUpdatedAt: new Date(),
-      pronunciation: data.pronunciation || null,
-      difficulty: data.difficulty ?? 3,
-    },
-    include: { learningState: true },
-  });
 };
 
 export const addWord = async (input: AddWordInput) => {
@@ -100,6 +81,80 @@ export const addWord = async (input: AddWordInput) => {
   return word;
 };
 
+// Bulk add: normalize/split each entry, drop existing + repeated words, create the rest with a NEW
+// LearningState, then hand them to the background AI worker and return immediately.
+export const addWords = async (words: unknown[]) => {
+  const seen = new Set<string>();
+  const duplicates: string[] = [];
+  const invalid: string[] = [];
+
+  for (const raw of words) {
+    if (typeof raw !== 'string') {
+      invalid.push(String(raw));
+      continue;
+    }
+
+    for (const part of raw.split(/[\s,]+/)) {
+      const token = part.trim().toLowerCase();
+      if (!token) continue;
+
+      if (token.length > MAX_WORD_LENGTH) {
+        invalid.push(token);
+        continue;
+      }
+
+      if (seen.has(token)) {
+        duplicates.push(token);
+        continue;
+      }
+
+      seen.add(token);
+    }
+  }
+
+  const normalized = [...seen];
+  if (normalized.length === 0) {
+    return { added: [], duplicates, invalid };
+  }
+  if (normalized.length > MAX_BULK_WORDS) {
+    throw new ApiError(
+      400,
+      'VALIDATION_ERROR',
+      `Too many words (max ${MAX_BULK_WORDS} per request)`
+    );
+  }
+
+  const existing = await prisma.vocabularyWord.findMany({
+    where: { word: { in: normalized }, isArchived: false },
+    select: { word: true },
+  });
+  const existingSet = new Set(existing.map((w) => w.word));
+
+  const fresh = normalized.filter((w) => !existingSet.has(w));
+  duplicates.push(...normalized.filter((w) => existingSet.has(w)));
+
+  let added: { id: string; word: string; status: string }[] = [];
+
+  if (fresh.length > 0) {
+    added = await prisma.$transaction(
+      fresh.map((word) =>
+        prisma.vocabularyWord.create({
+          data: {
+            word,
+            learningState: { create: { status: 'NEW', knowledgeScore: 0 } },
+          },
+          select: { id: true, word: true },
+        })
+      )
+    ).then((rows) => rows.map((r) => ({ id: r.id, word: r.word, status: 'PENDING' })));
+
+    // Fire-and-forget: generate AI content in the background so the client can close the app.
+    enqueueAIGeneration(added.map((w) => w.id));
+  }
+
+  return { added, duplicates, invalid };
+};
+
 export const listWords = async (params: {
   search?: string;
   status?: string;
@@ -125,6 +180,7 @@ export const listWords = async (params: {
   const [items, total] = await Promise.all([
     prisma.vocabularyWord.findMany({
       where,
+      omit: { aiData: true },
       include: { learningState: true },
       orderBy: { [sortField]: order },
       skip,
@@ -134,7 +190,7 @@ export const listWords = async (params: {
   ]);
 
   return {
-    items,
+    items: items.map((item) => ({ ...item, aiReady: item.aiModel !== null })),
     meta: {
       page,
       limit,

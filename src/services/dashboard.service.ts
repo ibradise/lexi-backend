@@ -31,7 +31,11 @@ export const getDashboard = async () => {
     }),
     prisma.vocabularyWord.findMany({
       where: { isArchived: false, learningState: { status: { in: ['LEARNING', 'NEW'] } } },
-      include: { learningState: true },
+      select: {
+        id: true,
+        word: true,
+        learningState: { select: { knowledgeScore: true } },
+      },
       orderBy: { learningState: { knowledgeScore: 'asc' } },
       take: 5,
     }),

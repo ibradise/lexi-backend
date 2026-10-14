@@ -1,4 +1,4 @@
-import { ExerciseType, ReviewResult } from '@prisma/client';
+import { Prisma, ExerciseType, ReviewResult } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
 import {
@@ -20,7 +20,15 @@ interface SubmitReviewInput {
 export const submitReview = async (input: SubmitReviewInput) => {
   const word = await prisma.vocabularyWord.findUnique({
     where: { id: input.wordId },
-    include: { learningState: true, reviews: true },  
+    select: {
+      id: true,
+      learningState: {
+        select: { intervalDays: true, easeFactor: true, repetitions: true },
+      },
+      reviews: {
+        select: { result: true, responseTimeMs: true, hintUsed: true },
+      },
+    },
   });
 
   if (!word) {
@@ -86,6 +94,20 @@ export const submitReview = async (input: SubmitReviewInput) => {
   });
 };
 
+const queueSelect = {
+  id: true,
+  word: true,
+  aiModel: true,
+  learningState: {
+    select: {
+      knowledgeScore: true,
+      nextReviewAt: true,
+      lastReviewedAt: true,
+      status: true,
+    },
+  },
+} satisfies Prisma.VocabularyWordSelect;
+
 export const getTodayReview = async () => {
   const now = new Date();
   const words = await prisma.vocabularyWord.findMany({
@@ -95,7 +117,7 @@ export const getTodayReview = async () => {
         nextReviewAt: { lte: now },
       },
     },
-    include: { learningState: true },
+    select: queueSelect,
     take: 30,
   });
 
@@ -104,7 +126,7 @@ export const getTodayReview = async () => {
       isArchived: false,
       learningState: { status: 'NEW' },
     },
-    include: { learningState: true },
+    select: queueSelect,
     take: 5,
   });
 
@@ -126,6 +148,7 @@ export const getTodayReview = async () => {
         priority,
         knowledgeScore: ls?.knowledgeScore || 0,
         status: ls?.status || 'NEW',
+        aiReady: w.aiModel !== null,
       };
     })
     .sort((a, b) => b.priority - a.priority)
