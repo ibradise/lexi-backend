@@ -15,9 +15,9 @@ describe('Review API', () => {
   beforeAll(async () => {
     (generateWordContent as jest.Mock).mockResolvedValue({
       meanings: [{ meaning: 'a review test word', isPrimary: true }],
+      examples: [{ sentence: 'A review test word sentence.', context: 'daily_life' }],
       exercises: [
         {
-          type: 'MULTIPLE_CHOICE',
           question: 'What does it mean?',
           options: ['a', 'b', 'c', 'd'],
           correctAnswer: 'a',

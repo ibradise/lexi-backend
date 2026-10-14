@@ -15,31 +15,47 @@ const parseAIResponse = (text: string): AIData => {
   if (!data.meanings || !Array.isArray(data.meanings) || data.meanings.length === 0) {
     throw new Error('Invalid AI response: meanings missing');
   }
+  if (!data.examples || !Array.isArray(data.examples) || data.examples.length === 0) {
+    throw new Error('Invalid AI response: examples missing');
+  }
+  for (const example of data.examples) {
+    if (!example.sentence || !example.context) {
+      throw new Error('Invalid example: missing sentence or context');
+    }
+  }
   if (!data.exercises || !Array.isArray(data.exercises) || data.exercises.length === 0) {
     throw new Error('Invalid AI response: exercises missing');
   }
-
-  // Validate each exercise has required fields per type
   for (const exercise of data.exercises) {
-    if (exercise.type === 'EXAMPLE') {
-      if (!exercise.content || !exercise.context) {
-        throw new Error('Invalid EXAMPLE exercise: missing content or context');
-      }
-    } else if (exercise.type === 'MULTIPLE_CHOICE') {
-      if (
-        !exercise.question ||
-        !exercise.options ||
-        exercise.options.length !== 4 ||
-        !exercise.correctAnswer
-      ) {
-        throw new Error('Invalid MULTIPLE_CHOICE exercise: missing question, 4 options, or correctAnswer');
-      }
+    if (
+      !exercise.question ||
+      !exercise.options ||
+      exercise.options.length !== 4 ||
+      !exercise.correctAnswer
+    ) {
+      throw new Error('Invalid exercise: missing question, 4 options, or correctAnswer');
     }
   }
 
   return {
     meanings: data.meanings,
-    exercises: data.exercises,
+    examples: data.examples.map((example: { sentence: string; context: string }) => ({
+      sentence: example.sentence,
+      context: example.context,
+    })),
+    exercises: data.exercises.map(
+      (exercise: {
+        question: string;
+        options: string[];
+        correctAnswer: string;
+        explanation?: string;
+      }) => ({
+        question: exercise.question,
+        options: exercise.options,
+        correctAnswer: exercise.correctAnswer,
+        explanation: exercise.explanation || '',
+      })
+    ),
     synonyms: data.synonyms || [],
     antonyms: data.antonyms || [],
     pronunciation: data.pronunciation || '',

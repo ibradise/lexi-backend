@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
 import { generateWordContent, getAIModel } from './ai.service';
-import { AIExercise, AIData } from '../types/ai';
+import { AIData } from '../types/ai';
 
 const AI_WAIT_MS = 8000;
 const ALLOWED_SORT_FIELDS = ['dateAdded', 'word'] as const;
@@ -175,41 +175,18 @@ export const getExercises = async (wordId: string) => {
   const aiData = (word.aiData as unknown as AIData | null) ?? null;
   const all = aiData?.exercises ?? [];
 
-  const examples = shuffle(all.filter((e) => e.type === 'EXAMPLE'));
-  const interactive = shuffle(all.filter((e) => e.type !== 'EXAMPLE'));
-
-  const target = Math.min(3, all.length);
-  const picked: AIExercise[] = [];
-
-  // Always include at least 1 EXAMPLE when available
-  if (examples.length > 0) {
-    picked.push(examples[0]);
-  }
-
-  // Fill with interactive exercises up to the target count
-  for (const exercise of interactive) {
-    if (picked.length >= target) break;
-    picked.push(exercise);
-  }
-
-  // Top up from any remaining exercise
-  for (const exercise of shuffle(all)) {
-    if (picked.length >= target) break;
-    if (!picked.includes(exercise)) picked.push(exercise);
-  }
+  const picked = shuffle(all).slice(0, Math.min(3, all.length));
 
   return {
     wordId: word.id,
     word: word.word,
     exercises: picked.map((e, i) => ({
       id: `${word.id}-ex-${i}`,
-      type: e.type,
-      content: e.content ?? null,
-      context: e.context ?? null,
-      question: e.question ?? null,
-      options: e.options ?? null,
-      correctAnswer: e.correctAnswer ?? null,
-      explanation: e.explanation ?? null,
+      type: 'MULTIPLE_CHOICE',
+      question: e.question,
+      options: e.options,
+      correctAnswer: e.correctAnswer,
+      explanation: e.explanation,
     })),
   };
 };

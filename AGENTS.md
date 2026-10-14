@@ -172,7 +172,7 @@ PORT=3001
 | POST | /api/vocabulary | Add a new word |
 | GET | /api/vocabulary | List words (search, filter, paginate) |
 | GET | /api/vocabulary/:id | Word detail |
-| GET | /api/vocabulary/:id/exercises | Review exercises (2-3, with correctAnswer) |
+| GET | /api/vocabulary/:id/exercises | Review exercises (2-3 multiple-choice, with correctAnswer) |
 | DELETE | /api/vocabulary/:id | Soft delete word |
 | POST | /api/vocabulary/:id/regenerate-ai | Regenerate AI content |
 | GET | /api/review/today | Today's review queue |
@@ -193,7 +193,7 @@ PORT=3001
 ### Database Entities
 - VocabularyWord → LearningState (1:1)
 - VocabularyWord → Review (1:N)
-- `VocabularyWord.aiData` (Json) — the whole AI response (meanings, exercises, synonyms, antonyms, pronunciation, difficulty)
+- `VocabularyWord.aiData` (Json) — the whole AI response (meanings, examples, exercises, synonyms, antonyms, pronunciation, difficulty); `examples` are learning content, `exercises` are answerable MULTIPLE_CHOICE items
 
 ### Knowledge Scoring
 - Review accuracy (65%), response time (15%), hint usage (10%), repetition count (10%) over the last 10 reviews

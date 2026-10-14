@@ -24,7 +24,7 @@
 
 ```
 VocabularyWord
-├── aiData (Json)        — full AI response: meanings, exercises, synonyms, antonyms, pronunciation, difficulty
+├── aiData (Json)        — full AI response: meanings, examples, exercises, synonyms, antonyms, pronunciation, difficulty
 ├── LearningState (1:1)
 └── Review (1:N)
 ```
@@ -108,9 +108,11 @@ Context: {sourceContext}
 Generate JSON:
 {
   "meanings": [{ "meaning": "...", "isPrimary": true }],
+  "examples": [
+    { "sentence": "...", "context": "workplace|relationships|..." }
+  ],
   "exercises": [
-    { "type": "EXAMPLE", "content": "...", "context": "..." },
-    { "type": "MULTIPLE_CHOICE", "question": "...", "options": ["..."], "correctAnswer": "...", "explanation": "..." }
+    { "question": "...", "options": ["...", "...", "...", "..."], "correctAnswer": "...", "explanation": "..." }
   ],
   "synonyms": [...],
   "antonyms": [...],
@@ -118,6 +120,9 @@ Generate JSON:
   "difficulty": 1-5
 }
 ```
+
+> Examples (learning content) and exercises (answerable items) are separate fields.
+> Examples are never scored; `exercises` holds only `MULTIPLE_CHOICE` items.
 
 ---
 

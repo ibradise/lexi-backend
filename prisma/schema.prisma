@@ -75,7 +75,6 @@ enum WordStatus {
 }
 
 enum ExerciseType {
-  EXAMPLE
   DEFINITION_RECALL
   MULTIPLE_CHOICE
   CONTEXT_COMPLETION

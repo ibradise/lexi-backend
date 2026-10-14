@@ -100,3 +100,22 @@
 - Replaces the earlier `WordMeaning`/`Example`/`Exercise`/`AICacheEntry` tables
 - Gemini model: `gemini-3.5-flash` (JSON response mode, `maxOutputTokens` 3000)
 - AI is best-effort on add: on timeout/failure the word is saved as PENDING and can be regenerated
+
+---
+
+## 2026-10-14 — Separate examples from exercises (AI response restructure)
+- ✅ Split AI content into two fields: `examples: AIExample[]` (learning content) and `exercises: AIMultipleChoice[]` (answerable items)
+- ✅ `src/types/ai.ts`: added `AIExample` and `AIMultipleChoice`; removed `AIExercise`/`AIExerciseType`
+- ✅ Prompt now emits `examples` (4-6, distinct contexts) separately from `exercises` (2-3 MULTIPLE_CHOICE, no `type` field)
+- ✅ `parseAIResponse`: validates `examples` (sentence + context) and `exercises` (question, 4 options, correctAnswer, explanation)
+- ✅ Removed `EXAMPLE` from the `ExerciseType` enum; migration `20261014113010_remove_example_enum` recreates the enum type without it
+- ✅ `getExercises`: returns only answerable exercises (random 2-3), each tagged `type: 'MULTIPLE_CHOICE'`; no more EXAMPLE mixing / "≥1 EXAMPLE" guarantee
+- ✅ Tests updated for the new `AIData` shape — 36 passing
+
+## Database Changes
+- `ExerciseType` enum: removed `EXAMPLE` (recreated type; existing `EXAMPLE` review rows reassigned to `MULTIPLE_CHOICE`)
+
+## Notes
+- Examples are learning content, never scored; only `exercises` flow through the review/scoring pipeline
+- `getExercises` response still includes a `type: 'MULTIPLE_CHOICE'` field so the client can submit `exerciseType` to `POST /api/review/:wordId/submit`
+- `aiData` shape: `{ meanings[], examples[], exercises[], synonyms[], antonyms[], pronunciation, difficulty }`

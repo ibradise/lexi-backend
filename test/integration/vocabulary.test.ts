@@ -11,11 +11,12 @@ const WORD = `testword${Date.now()}`;
 
 const aiFixture = {
   meanings: [{ meaning: 'a word used in tests', isPrimary: true }],
+  examples: [
+    { sentence: 'We use testword in a sentence.', context: 'science' },
+    { sentence: 'Another testword example.', context: 'daily_life' },
+  ],
   exercises: [
-    { type: 'EXAMPLE', content: 'We use testword in a sentence.', context: 'science' },
-    { type: 'EXAMPLE', content: 'Another testword example.', context: 'daily_life' },
     {
-      type: 'MULTIPLE_CHOICE',
       question: `What is the meaning of '${WORD}'?`,
       options: ['a word used in tests', 'a fruit', 'a color', 'a country'],
       correctAnswer: 'a word used in tests',
@@ -45,6 +46,7 @@ describe('Vocabulary API', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.data.word).toBe(WORD);
       expect(res.body.data.aiData).toBeTruthy();
+      expect(res.body.data.aiData.examples).toBeTruthy();
       expect(res.body.data.aiModel).toBe('gemini-3.5-flash');
       expect(res.body.data.pronunciation).toBe('/test/');
       expect(res.body.data.difficulty).toBe(2);
@@ -102,7 +104,7 @@ describe('Vocabulary API', () => {
   });
 
   describe('GET /api/vocabulary/:id/exercises', () => {
-    it('should return 1-3 exercises including an EXAMPLE', async () => {
+    it('should return 1-3 multiple-choice exercises', async () => {
       const res = await request(app).get(`/api/vocabulary/${wordId}/exercises`);
 
       expect(res.status).toBe(200);
@@ -110,7 +112,11 @@ describe('Vocabulary API', () => {
       expect(res.body.data.wordId).toBe(wordId);
       expect(res.body.data.exercises.length).toBeGreaterThanOrEqual(1);
       expect(res.body.data.exercises.length).toBeLessThanOrEqual(3);
-      expect(res.body.data.exercises.some((e: { type: string }) => e.type === 'EXAMPLE')).toBe(true);
+      const first = res.body.data.exercises[0];
+      expect(first.type).toBe('MULTIPLE_CHOICE');
+      expect(first.question).toBeTruthy();
+      expect(first.options).toHaveLength(4);
+      expect(first.correctAnswer).toBeTruthy();
     });
 
     it('should return 404 for non-existent word', async () => {
