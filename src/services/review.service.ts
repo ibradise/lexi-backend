@@ -36,7 +36,7 @@ export const submitReview = async (input: SubmitReviewInput) => {
   }
 
   return prisma.$transaction(async (tx) => {
-    const review = await tx.review.create({
+    const review = await tx.reviewHistory.create({
       data: {
         wordId: input.wordId,
         exerciseType: input.exerciseType,
@@ -165,14 +165,14 @@ export const getTodayReview = async () => {
 export const getReviewHistory = async (wordId?: string, page = 1, limit = 20) => {
   const where: Record<string, unknown> = wordId ? { wordId } : {};
   const [items, total] = await Promise.all([
-    prisma.review.findMany({
+    prisma.reviewHistory.findMany({
       where,
       include: { word: { select: { word: true } } },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.review.count({ where }),
+    prisma.reviewHistory.count({ where }),
   ]);
 
   return {

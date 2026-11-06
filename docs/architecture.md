@@ -26,10 +26,10 @@
 VocabularyWord
 ├── aiData (Json)        — full AI response: meanings, examples, exercises, synonyms, antonyms, pronunciation, difficulty
 ├── LearningState (1:1)
-└── Review (1:N)
+└── ReviewHistory (1:N)
 ```
 
-Only three tables exist: `VocabularyWord`, `LearningState`, `Review`.
+Only three tables exist: `VocabularyWord`, `LearningState`, `ReviewHistory`.
 The whole AI response for a word lives in the single `aiData` JSON column
 (plus denormalized `aiModel`, `aiUpdatedAt`, `pronunciation`, `difficulty`).
 

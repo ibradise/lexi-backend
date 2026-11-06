@@ -169,3 +169,18 @@
 ## Notes
 - Retries only run while the process is alive; a word that exhausts its attempts is PENDING until restart/regenerate
 - Attempts stack on `callGeminiWithRetry`'s internal 3 attempts (up to ~9 Gemini calls per word)
+
+---
+
+## 2026-11-06 — Phase 10: Rename Review → ReviewHistory
+- ✅ `prisma/schema.prisma`: `model Review` → `model ReviewHistory`; relation field kept as `reviews` (`ReviewHistory[]`) so API response keys are unchanged
+- ✅ Added data-preserving migration `20261106232606_rename_review_to_review_history` (`ALTER TABLE ... RENAME`, plus index/constraint renames) — created manually because the dev DB was unreachable (`P1001`)
+- ✅ `src/services/review.service.ts`: `tx.review` / `prisma.review` → `prisma.reviewHistory`
+- ✅ `src/services/dashboard.service.ts`: `prisma.review` → `prisma.reviewHistory`
+- ✅ `src/services/scoring.service.ts`: `Review` type → `ReviewHistory`
+- ✅ `npx prisma validate`, `npx prisma generate`, and `npm run build` pass
+- ⏳ Migration not applied (DB unreachable); `npm test` not run (needs live Postgres)
+
+## Notes
+- Public API unchanged: `/api/review/*`, `submitReview`, and the `reviews` key on `GET /api/vocabulary/:id`
+- Apply later with `npx prisma migrate deploy` (or `migrate dev`) when the DB is reachable, then re-run tests

@@ -1,6 +1,6 @@
-import { Review, LearningState } from '@prisma/client';
+import { ReviewHistory, LearningState } from '@prisma/client';
 
-export type ReviewSignals = Pick<Review, 'result' | 'responseTimeMs' | 'hintUsed'>;
+export type ReviewSignals = Pick<ReviewHistory, 'result' | 'responseTimeMs' | 'hintUsed'>;
 
 export const calculateKnowledgeScore = (reviews: ReviewSignals[]): number => {
   if (reviews.length === 0) return 0;

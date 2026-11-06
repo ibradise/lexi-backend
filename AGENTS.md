@@ -193,7 +193,7 @@ PORT=3001
 
 ### Database Entities
 - VocabularyWord → LearningState (1:1)
-- VocabularyWord → Review (1:N)
+- VocabularyWord → ReviewHistory (1:N)
 - `VocabularyWord.aiData` (Json) — the whole AI response (meanings, examples, exercises, synonyms, antonyms, pronunciation, difficulty); `examples` are learning content, `exercises` are answerable MULTIPLE_CHOICE items
 
 ### Knowledge Scoring

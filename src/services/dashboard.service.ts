@@ -39,10 +39,10 @@ export const getDashboard = async () => {
       orderBy: { learningState: { knowledgeScore: 'asc' } },
       take: 5,
     }),
-    prisma.review.count({
+    prisma.reviewHistory.count({
       where: { createdAt: { gte: todayStart } },
     }),
-    prisma.review.groupBy({
+    prisma.reviewHistory.groupBy({
       by: ['result'],
       where: { createdAt: { gte: sevenDaysAgo } },
       _count: { _all: true },

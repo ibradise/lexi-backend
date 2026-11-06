@@ -25,7 +25,7 @@ model VocabularyWord {
   aiUpdatedAt DateTime?
 
   learningState LearningState?
-  reviews       Review[]
+  reviews       ReviewHistory[]
 
   @@index([dateAdded])
   @@index([isArchived])
@@ -50,7 +50,7 @@ model LearningState {
   @@index([status])
 }
 
-model Review {
+model ReviewHistory {
   id             String       @id @default(cuid())
   wordId         String
   exerciseType   ExerciseType
