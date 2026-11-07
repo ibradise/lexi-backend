@@ -177,7 +177,7 @@ PORT=3001
 | DELETE | /api/vocabulary/:id | Soft delete word |
 | POST | /api/vocabulary/:id/regenerate-ai | Regenerate AI content |
 | GET | /api/review/today | Today's review queue |
-| POST | /api/review/:wordId/submit | Submit review answer |
+| POST | /api/review/:wordId/submit | Submit `{ exerciseId, userAnswer?, skipped? }` — server derives CORRECT/INCORRECT/SKIPPED |
 | GET | /api/review/history | Review history |
 | GET | /api/dashboard | Dashboard data |
 

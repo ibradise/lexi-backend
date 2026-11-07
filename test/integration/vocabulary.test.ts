@@ -22,6 +22,24 @@ const aiFixture = {
       correctAnswer: 'a word used in tests',
       explanation: 'It is a test fixture.',
     },
+    {
+      question: `Which sentence uses '${WORD}' correctly?`,
+      options: ['the first', 'the second', 'the third', 'the fourth'],
+      correctAnswer: 'the first',
+      explanation: 'Fixture option one.',
+    },
+    {
+      question: `Choose the synonym of '${WORD}'.`,
+      options: ['sample', 'river', 'stone', 'cloud'],
+      correctAnswer: 'sample',
+      explanation: 'Fixture option two.',
+    },
+    {
+      question: `Pick the related word for '${WORD}'.`,
+      options: ['testing', 'flying', 'swimming', 'eating'],
+      correctAnswer: 'testing',
+      explanation: 'Fixture option three.',
+    },
   ],
   synonyms: ['sample'],
   antonyms: ['awesome'],
@@ -239,6 +257,24 @@ describe('Vocabulary API', () => {
 
       expect(res.status).toBe(404);
     });
+
+    it('should return stable exercise ids across requests', async () => {
+      const seen = new Map<string, string>();
+
+      for (let i = 0; i < 8; i++) {
+        const res = await request(app).get(`/api/vocabulary/${wordId}/exercises`);
+
+        for (const exercise of res.body.data.exercises) {
+          const previous = seen.get(exercise.id);
+          if (previous !== undefined) {
+            expect(exercise.question).toBe(previous);
+          }
+          seen.set(exercise.id, exercise.question);
+        }
+      }
+
+      expect(seen.size).toBeGreaterThan(1);
+    });
   });
 
   describe('POST /api/vocabulary/:id/regenerate-ai', () => {
@@ -265,6 +301,38 @@ describe('Vocabulary API', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.isArchived).toBe(true);
+    });
+
+    it('should return 404 for an archived word detail', async () => {
+      const res = await request(app).get(`/api/vocabulary/${wordId}`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('should return 404 for archived word exercises', async () => {
+      const res = await request(app).get(`/api/vocabulary/${wordId}/exercises`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('should return 404 for archived word regenerate', async () => {
+      const res = await request(app).post(`/api/vocabulary/${wordId}/regenerate-ai`);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('should treat an archived word as a duplicate on bulk re-add', async () => {
+      const res = await request(app).post('/api/vocabulary').send({ words: [WORD] });
+
+      expect(res.status).toBe(202);
+      expect(res.body.data.duplicates).toContain(WORD);
+      expect(res.body.data.added).toHaveLength(0);
+    });
+
+    it('should treat an archived word as a duplicate on single re-add', async () => {
+      const res = await request(app).post('/api/vocabulary').send({ word: WORD });
+
+      expect(res.status).toBe(409);
     });
 
     it('should return 404 for non-existent word', async () => {

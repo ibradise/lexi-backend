@@ -1,6 +1,7 @@
-import { Prisma, ExerciseType, ReviewResult } from '@prisma/client';
+import { Prisma, ReviewResult } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
+import { AIData } from '../types/ai';
 import {
   calculateKnowledgeScore,
   calculateNewInterval,
@@ -10,39 +11,75 @@ import {
 
 interface SubmitReviewInput {
   wordId: string;
-  exerciseType: ExerciseType;
-  result: ReviewResult;
-  responseTimeMs?: number;
+  exerciseId: string;
   userAnswer?: string;
+  responseTimeMs?: number;
   hintUsed: boolean;
+  skipped?: boolean;
 }
 
+const normalizeAnswer = (value: string): string =>
+  value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const findExercise = (wordId: string, exerciseId: string, aiData: AIData) => {
+  const prefix = `${wordId}-ex-`;
+  if (!exerciseId.startsWith(prefix)) return null;
+
+  const rawIndex = exerciseId.slice(prefix.length);
+  if (!/^\d+$/.test(rawIndex)) return null;
+
+  const index = Number(rawIndex);
+  if (!Number.isInteger(index) || index < 0 || index >= aiData.exercises.length) return null;
+
+  return aiData.exercises[index] ?? null;
+};
+  
 export const submitReview = async (input: SubmitReviewInput) => {
   const word = await prisma.vocabularyWord.findUnique({
     where: { id: input.wordId },
     select: {
       id: true,
+      isArchived: true,
+      aiData: true,
       learningState: {
         select: { intervalDays: true, easeFactor: true, repetitions: true },
       },
       reviews: {
         select: { result: true, responseTimeMs: true, hintUsed: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       },
     },
   });
 
-  if (!word) {
+  if (!word || word.isArchived) {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
+
+  const aiData = (word.aiData as unknown as AIData | null) ?? null;
+  if (!aiData) {
+    throw new ApiError(409, 'AI_NOT_READY', 'AI content is not ready for this word');
+  }
+
+  const exercise = findExercise(word.id, input.exerciseId, aiData);
+  if (!exercise) {
+    throw new ApiError(400, 'INVALID_EXERCISE', 'Exercise not found for this word');
+  }
+
+  const result: ReviewResult = input.skipped
+    ? 'SKIPPED'
+    : normalizeAnswer(input.userAnswer ?? '') === normalizeAnswer(exercise.correctAnswer)
+      ? 'CORRECT'
+      : 'INCORRECT';
 
   return prisma.$transaction(async (tx) => {
     const review = await tx.reviewHistory.create({
       data: {
         wordId: input.wordId,
-        exerciseType: input.exerciseType,
-        result: input.result,
+        exerciseType: 'MULTIPLE_CHOICE',
+        result,
         responseTimeMs: input.responseTimeMs,
         userAnswer: input.userAnswer,
+        correctAnswer: exercise.correctAnswer,
         hintUsed: input.hintUsed,
       },
     });
@@ -61,7 +98,7 @@ export const submitReview = async (input: SubmitReviewInput) => {
         easeFactor: currentEase,
         repetitions: currentReps,
       } as never,
-      input.result
+      result
     );
 
     const nextReviewAt = new Date();
@@ -163,7 +200,10 @@ export const getTodayReview = async () => {
 };
 
 export const getReviewHistory = async (wordId?: string, page = 1, limit = 20) => {
-  const where: Record<string, unknown> = wordId ? { wordId } : {};
+  const where: Record<string, unknown> = {
+    word: { isArchived: false },
+    ...(wordId ? { wordId } : {}),
+  };
   const [items, total] = await Promise.all([
     prisma.reviewHistory.findMany({
       where,

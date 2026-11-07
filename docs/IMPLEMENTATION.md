@@ -179,8 +179,29 @@
 - ✅ `src/services/dashboard.service.ts`: `prisma.review` → `prisma.reviewHistory`
 - ✅ `src/services/scoring.service.ts`: `Review` type → `ReviewHistory`
 - ✅ `npx prisma validate`, `npx prisma generate`, and `npm run build` pass
-- ⏳ Migration not applied (DB unreachable); `npm test` not run (needs live Postgres)
+- ✅ Migration applied with `npx prisma migrate deploy`; full suite passes (56/56)
 
 ## Notes
 - Public API unchanged: `/api/review/*`, `submitReview`, and the `reviews` key on `GET /api/vocabulary/:id`
-- Apply later with `npx prisma migrate deploy` (or `migrate dev`) when the DB is reachable, then re-run tests
+- Migration is data-preserving (`ALTER TABLE ... RENAME`); no manual data step needed
+
+---
+
+## 2026-11-06 — Phase 11: Critical bug fixes (#1–#4)
+- ✅ #1 `submitReview` fetches the word's reviews ordered by `createdAt asc, id asc`, so `slice(-10)`/scoring and SM-2 use the true latest 10
+- ✅ #2 Server-side answer validation:
+  - `getExercises` now assigns stable ids from the original `aiData` index (before shuffle): `<wordId>-ex-<index>`
+  - `POST /api/review/:wordId/submit` accepts `{ exerciseId, userAnswer?, responseTimeMs?, hintUsed?, skipped? }`
+  - server resolves the exercise from `aiData`, normalizes the answer, derives `CORRECT`/`INCORRECT`/`SKIPPED`, stores `correctAnswer` + `userAnswer`, and feeds the derived result into scoring/SM-2
+  - `400` unknown/foreign `exerciseId`, `409` when `aiData` is not ready, `404` archived/non-existent word
+- ✅ #3 Archived-word guards: `getWord`, `getExercises`, `regenerateAI`, `submitReview` return 404 for archived words; review history and dashboard review counts filter archived words
+- ✅ #4 Soft-delete re-add: bulk add now treats archived words as duplicates (no unique-constraint 500); `errorHandler` maps Prisma `P2002` → 409 and `P2025` → 404
+- ✅ Tests updated: review submit contract (correct/wrong/skipped/unknown/foreign/archived/not-ready), score-order regression, stable exercise ids, archived guards + re-add duplicates
+- ✅ `npm run build` passes; `npm test` passes (56/56 across 3 suites)
+
+## API Changes
+- `POST /api/review/:wordId/submit` body is now `{ exerciseId, userAnswer?, responseTimeMs?, hintUsed?, skipped? }`; the client no longer sends `result`/`exerciseType`
+- `GET /api/vocabulary/:id/exercises` ids are stable across requests; `correctAnswer` is still returned
+
+## Notes
+- Postgres reachable again via `db.prisma.io`; all migrations applied and integration tests run against it

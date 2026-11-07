@@ -128,7 +128,7 @@ export const addWords = async (words: unknown[]) => {
   }
 
   const existing = await prisma.vocabularyWord.findMany({
-    where: { word: { in: normalized }, isArchived: false },
+    where: { word: { in: normalized } },
     select: { word: true },
   });
   const existingSet = new Set(existing.map((w) => w.word));
@@ -215,7 +215,7 @@ export const getWord = async (id: string) => {
     },
   });
 
-  if (!word) {
+  if (!word || word.isArchived) {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
 
@@ -227,25 +227,26 @@ export const getExercises = async (wordId: string) => {
     where: { id: wordId },
   });
 
-  if (!word) {
+  if (!word || word.isArchived) {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
 
   const aiData = (word.aiData as unknown as AIData | null) ?? null;
   const all = aiData?.exercises ?? [];
 
-  const picked = shuffle(all).slice(0, Math.min(3, all.length));
+  const indexed = all.map((exercise, index) => ({ exercise, index }));
+  const picked = shuffle(indexed).slice(0, Math.min(3, indexed.length));
 
   return {
     wordId: word.id,
     word: word.word,
-    exercises: picked.map((e, i) => ({
-      id: `${word.id}-ex-${i}`,
+    exercises: picked.map(({ exercise, index }) => ({
+      id: `${word.id}-ex-${index}`,
       type: 'MULTIPLE_CHOICE',
-      question: e.question,
-      options: e.options,
-      correctAnswer: e.correctAnswer,
-      explanation: e.explanation,
+      question: exercise.question,
+      options: exercise.options,
+      correctAnswer: exercise.correctAnswer,
+      explanation: exercise.explanation,
     })),
   };
 };
@@ -272,7 +273,7 @@ export const regenerateAI = async (id: string) => {
     where: { id },
   });
 
-  if (!word) {
+  if (!word || word.isArchived) {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
 

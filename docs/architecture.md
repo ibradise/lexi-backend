@@ -57,9 +57,18 @@ POST   /api/vocabulary/:id/regenerate-ai
 
 ```
 GET    /api/review/today            — Today's queue
-POST   /api/review/:wordId/submit   — Submit answer
+POST   /api/review/:wordId/submit   — Submit `{ exerciseId, userAnswer?, skipped? }`; server derives the result
 GET    /api/review/history          — History
 ```
+
+### Answer validation
+
+Exercises are returned with stable ids (`<wordId>-ex-<aiDataIndex>`) and the
+`correctAnswer`. On submit, the server resolves the exercise from the word's
+`aiData`, compares the normalized `userAnswer`, and stores the derived
+`ReviewHistory.result` (plus `correctAnswer`) — the client cannot dictate the
+score. `skipped: true` records `SKIPPED`. Archived words and words without AI
+content are rejected (404 / 409).
 
 ### Dashboard Endpoints
 

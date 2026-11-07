@@ -40,11 +40,11 @@ export const getDashboard = async () => {
       take: 5,
     }),
     prisma.reviewHistory.count({
-      where: { createdAt: { gte: todayStart } },
+      where: { createdAt: { gte: todayStart }, word: { isArchived: false } },
     }),
     prisma.reviewHistory.groupBy({
       by: ['result'],
-      where: { createdAt: { gte: sevenDaysAgo } },
+      where: { createdAt: { gte: sevenDaysAgo }, word: { isArchived: false } },
       _count: { _all: true },
     }),
   ]);
