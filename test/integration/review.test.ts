@@ -90,6 +90,103 @@ describe('Review API', () => {
       expect(res.body.data.review.result).toBe('SKIPPED');
     });
 
+    it('should schedule a skipped NEW word at least one day out', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      const res = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        skipped: true,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.learningState.intervalDays).toBeGreaterThanOrEqual(1);
+      const nextReviewAt = new Date(res.body.data.learningState.nextReviewAt).getTime();
+      expect(nextReviewAt).toBeGreaterThan(Date.now() + 23 * 60 * 60 * 1000);
+    });
+
+    it('should return the same review for a repeated submissionId', async () => {
+      const { wordId, exerciseId } = await setupWord();
+      const submissionId = `sub-${Date.now()}-${Math.random()}`;
+
+      const first = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        submissionId,
+      });
+      const second = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        submissionId,
+      });
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(second.body.data.review.id).toBe(first.body.data.review.id);
+      expect(await prisma.reviewHistory.count({ where: { wordId } })).toBe(1);
+    });
+
+    it('should return 409 when a submissionId is reused for another word', async () => {
+      const first = await setupWord();
+      const second = await setupWord();
+      const submissionId = `sub-${Date.now()}-${Math.random()}`;
+
+      await request(app).post(`/api/review/${first.wordId}/submit`).send({
+        exerciseId: first.exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        submissionId,
+      });
+
+      const res = await request(app).post(`/api/review/${second.wordId}/submit`).send({
+        exerciseId: second.exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        submissionId,
+      });
+
+      expect(res.status).toBe(409);
+    });
+
+    it('should return 400 for an invalid responseTimeMs', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      for (const responseTimeMs of ['fast', -1, 60001, 1.5]) {
+        const res = await request(app).post(`/api/review/${wordId}/submit`).send({
+          exerciseId,
+          userAnswer: CORRECT_ANSWER,
+          responseTimeMs,
+        });
+        expect(res.status).toBe(400);
+      }
+    });
+
+    it('should return 400 for non-boolean hintUsed or skipped', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      const hint = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        hintUsed: 'true',
+      });
+      const skip = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        skipped: 1,
+      });
+
+      expect(hint.status).toBe(400);
+      expect(skip.status).toBe(400);
+    });
+
+    it('should return 400 for an invalid submissionId', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      const res = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        submissionId: 123,
+      });
+
+      expect(res.status).toBe(400);
+    });
+
     it('should return 400 for a missing exerciseId', async () => {
       const { wordId } = await setupWord();
 
@@ -259,6 +356,30 @@ describe('Review API', () => {
         ]);
       }
     });
+
+    it('should report totals beyond the returned queue cap', async () => {
+      const suffix = Date.now();
+      const rows = Array.from({ length: 31 }, (_, i) => ({
+        id: `queue-${suffix}-${i}`,
+        word: `queueword${suffix}${i}`,
+      }));
+
+      await prisma.vocabularyWord.createMany({ data: rows });
+      await prisma.learningState.createMany({
+        data: rows.map((row) => ({
+          wordId: row.id,
+          status: 'LEARNING' as const,
+          nextReviewAt: new Date(Date.now() - 60_000),
+        })),
+      });
+
+      const res = await request(app).get('/api/review/today');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.reviewWords).toBeGreaterThanOrEqual(31);
+      expect(res.body.data.totalDue).toBeGreaterThanOrEqual(31);
+      expect(res.body.data.queue).toHaveLength(30);
+    });
   });
 
   describe('GET /api/review/history', () => {
@@ -281,6 +402,14 @@ describe('Review API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThan(0);
+    });
+
+    it('should return 400 for invalid pagination', async () => {
+      for (const query of ['page=0', 'page=abc', 'limit=101']) {
+        const res = await request(app).get(`/api/review/history?${query}`);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      }
     });
   });
 });

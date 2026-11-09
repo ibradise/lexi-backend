@@ -16,6 +16,7 @@ interface SubmitReviewInput {
   responseTimeMs?: number;
   hintUsed: boolean;
   skipped?: boolean;
+  submissionId?: string;
 }
 
 const normalizeAnswer = (value: string): string =>
@@ -33,7 +34,19 @@ const findExercise = (wordId: string, exerciseId: string, aiData: AIData) => {
 
   return aiData.exercises[index] ?? null;
 };
-  
+
+const findExistingSubmission = async (wordId: string, submissionId: string) => {
+  const review = await prisma.reviewHistory.findUnique({ where: { submissionId } });
+  if (!review) return null;
+
+  if (review.wordId !== wordId) {
+    throw new ApiError(409, 'CONFLICT', 'submissionId already used for another word');
+  }
+
+  const learningState = await prisma.learningState.findUnique({ where: { wordId } });
+  return { review, learningState };
+};
+
 export const submitReview = async (input: SubmitReviewInput) => {
   const word = await prisma.vocabularyWord.findUnique({
     where: { id: input.wordId },
@@ -55,6 +68,11 @@ export const submitReview = async (input: SubmitReviewInput) => {
     throw new ApiError(404, 'NOT_FOUND', 'Word not found');
   }
 
+  if (input.submissionId) {
+    const existing = await findExistingSubmission(input.wordId, input.submissionId);
+    if (existing) return existing;
+  }
+
   const aiData = (word.aiData as unknown as AIData | null) ?? null;
   if (!aiData) {
     throw new ApiError(409, 'AI_NOT_READY', 'AI content is not ready for this word');
@@ -71,64 +89,77 @@ export const submitReview = async (input: SubmitReviewInput) => {
       ? 'CORRECT'
       : 'INCORRECT';
 
-  return prisma.$transaction(async (tx) => {
-    const review = await tx.reviewHistory.create({
-      data: {
-        wordId: input.wordId,
-        exerciseType: 'MULTIPLE_CHOICE',
-        result,
-        responseTimeMs: input.responseTimeMs,
-        userAnswer: input.userAnswer,
-        correctAnswer: exercise.correctAnswer,
-        hintUsed: input.hintUsed,
-      },
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const review = await tx.reviewHistory.create({
+        data: {
+          wordId: input.wordId,
+          submissionId: input.submissionId,
+          exerciseType: 'MULTIPLE_CHOICE',
+          result,
+          responseTimeMs: input.responseTimeMs,
+          userAnswer: input.userAnswer,
+          correctAnswer: exercise.correctAnswer,
+          hintUsed: input.hintUsed,
+        },
+      });
+
+      const allReviews = [...word.reviews, review];
+      const newScore = calculateKnowledgeScore(allReviews);
+      const newStatus = getStatusFromScore(newScore);
+
+      const currentInterval = word.learningState?.intervalDays || 0;
+      const currentEase = word.learningState?.easeFactor || 2.5;
+      const currentReps = word.learningState?.repetitions || 0;
+
+      const { intervalDays, easeFactor, repetitions } = calculateNewInterval(
+        {
+          intervalDays: currentInterval,
+          easeFactor: currentEase,
+          repetitions: currentReps,
+        } as never,
+        result
+      );
+
+      const nextReviewAt = new Date();
+      nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
+
+      const learningState = await tx.learningState.upsert({
+        where: { wordId: input.wordId },
+        create: {
+          wordId: input.wordId,
+          status: newStatus as never,
+          knowledgeScore: newScore,
+          easeFactor,
+          intervalDays,
+          repetitions,
+          nextReviewAt,
+          lastReviewedAt: new Date(),
+        },
+        update: {
+          status: newStatus as never,
+          knowledgeScore: newScore,
+          easeFactor,
+          intervalDays,
+          repetitions,
+          nextReviewAt,
+          lastReviewedAt: new Date(),
+        },
+      });
+
+      return { review, learningState };
     });
-
-    const allReviews = [...word.reviews, review];
-    const newScore = calculateKnowledgeScore(allReviews);
-    const newStatus = getStatusFromScore(newScore);
-
-    const currentInterval = word.learningState?.intervalDays || 0;
-    const currentEase = word.learningState?.easeFactor || 2.5;
-    const currentReps = word.learningState?.repetitions || 0;
-
-    const { intervalDays, easeFactor, repetitions } = calculateNewInterval(
-      {
-        intervalDays: currentInterval,
-        easeFactor: currentEase,
-        repetitions: currentReps,
-      } as never,
-      result
-    );
-
-    const nextReviewAt = new Date();
-    nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
-
-    const learningState = await tx.learningState.upsert({
-      where: { wordId: input.wordId },
-      create: {
-        wordId: input.wordId,
-        status: newStatus as never,
-        knowledgeScore: newScore,
-        easeFactor,
-        intervalDays,
-        repetitions,
-        nextReviewAt,
-        lastReviewedAt: new Date(),
-      },
-      update: {
-        status: newStatus as never,
-        knowledgeScore: newScore,
-        easeFactor,
-        intervalDays,
-        repetitions,
-        nextReviewAt,
-        lastReviewedAt: new Date(),
-      },
-    });
-
-    return { review, learningState };
-  });
+  } catch (err) {
+    if (
+      input.submissionId &&
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === 'P2002'
+    ) {
+      const existing = await findExistingSubmission(input.wordId, input.submissionId);
+      if (existing) return existing;
+    }
+    throw err;
+  }
 };
 
 const queueSelect = {
@@ -145,29 +176,38 @@ const queueSelect = {
   },
 } satisfies Prisma.VocabularyWordSelect;
 
+const QUEUE_LIMIT = 30;
+const NEW_WORD_LIMIT = 10;
+
 export const getTodayReview = async () => {
   const now = new Date();
-  const words = await prisma.vocabularyWord.findMany({
-    where: {
-      isArchived: false,
-      learningState: {
-        nextReviewAt: { lte: now },
-      },
+  const dueWhere: Prisma.VocabularyWordWhereInput = {
+    isArchived: false,
+    learningState: {
+      nextReviewAt: { lte: now },
     },
-    select: queueSelect,
-    take: 30,
-  });
+  };
+  const newWhere: Prisma.VocabularyWordWhereInput = {
+    isArchived: false,
+    learningState: { status: 'NEW' },
+  };
 
-  const newWords = await prisma.vocabularyWord.findMany({
-    where: {
-      isArchived: false,
-      learningState: { status: 'NEW' },
-    },
-    select: queueSelect,
-    take: 5,
-  });
+  const [words, newWordItems, reviewWords, newWords] = await Promise.all([
+    prisma.vocabularyWord.findMany({
+      where: dueWhere,
+      select: queueSelect,
+      take: QUEUE_LIMIT,
+    }),
+    prisma.vocabularyWord.findMany({
+      where: newWhere,
+      select: queueSelect,
+      take: NEW_WORD_LIMIT,
+    }),
+    prisma.vocabularyWord.count({ where: dueWhere }),
+    prisma.vocabularyWord.count({ where: newWhere }),
+  ]);
 
-  const queue = [...words, ...newWords]
+  const queue = [...words, ...newWordItems]
     .map((w) => {
       const ls = w.learningState;
       const daysSinceLastReview = ls?.lastReviewedAt
@@ -189,12 +229,12 @@ export const getTodayReview = async () => {
       };
     })
     .sort((a, b) => b.priority - a.priority)
-    .slice(0, 30);
+    .slice(0, QUEUE_LIMIT);
 
   return {
-    totalDue: queue.length,
-    newWords: queue.filter((q) => q.status === 'NEW').length,
-    reviewWords: queue.filter((q) => q.status !== 'NEW').length,
+    totalDue: reviewWords + newWords,
+    newWords,
+    reviewWords,
     queue,
   };
 };

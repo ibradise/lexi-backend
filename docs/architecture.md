@@ -57,7 +57,7 @@ POST   /api/vocabulary/:id/regenerate-ai
 
 ```
 GET    /api/review/today            — Today's queue
-POST   /api/review/:wordId/submit   — Submit `{ exerciseId, userAnswer?, skipped? }`; server derives the result
+POST   /api/review/:wordId/submit   — Submit `{ exerciseId, userAnswer?, skipped?, submissionId? }`; server derives the result
 GET    /api/review/history          — History
 ```
 
@@ -67,8 +67,21 @@ Exercises are returned with stable ids (`<wordId>-ex-<aiDataIndex>`) and the
 `correctAnswer`. On submit, the server resolves the exercise from the word's
 `aiData`, compares the normalized `userAnswer`, and stores the derived
 `ReviewHistory.result` (plus `correctAnswer`) — the client cannot dictate the
-score. `skipped: true` records `SKIPPED`. Archived words and words without AI
-content are rejected (404 / 409).
+score. `skipped: true` records `SKIPPED`. Archived words are rejected with 404;
+words without AI content are rejected with 409 on both endpoints.
+
+Submit body: `{ exerciseId, userAnswer?, responseTimeMs?, hintUsed?, skipped?, submissionId? }`.
+
+- `400 VALIDATION_ERROR` for malformed input: missing `exerciseId`/`userAnswer`,
+  non-integer or out-of-range `responseTimeMs` (0–60000), non-boolean
+  `hintUsed`/`skipped`, invalid `submissionId`, or invalid pagination
+  (`page >= 1`, `limit` 1–100).
+- `submissionId` is stored with a unique index: replaying the same key returns
+  the original review plus the current learning state (no double scoring);
+  reusing it for a different word returns 409.
+- A skipped NEW word is scheduled at least one day out (no immediate re-queue).
+- `GET /api/review/today` reports `totalDue`/`newWords`/`reviewWords` from count
+  queries; only the returned `queue` is capped (30 items).
 
 ### Dashboard Endpoints
 

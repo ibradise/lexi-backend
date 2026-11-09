@@ -1,7 +1,18 @@
 import { Request, Response } from 'express';
+import { WordStatus } from '@prisma/client';
 import * as vocabularyService from '../services/vocabulary.service';
 import { catchAsync } from '../utils/catchAsync';
 import { ApiError } from '../utils/ApiError';
+import {
+  MAX_PAGE_LIMIT,
+  MAX_PAGE_NUMBER,
+  parseEnum,
+  parseOptionalString,
+  parsePositiveInt,
+} from '../utils/query';
+
+const VALID_ORDERS = ['asc', 'desc'] as const;
+const VALID_STATUSES = Object.values(WordStatus);
 
 export const addWord = catchAsync(async (req: Request, res: Response) => {
   const { word, words, partOfSpeech, sourceContext, sourceUrl, sourceTitle } = req.body;
@@ -33,6 +44,14 @@ export const addWord = catchAsync(async (req: Request, res: Response) => {
     throw new ApiError(400, 'VALIDATION_ERROR', 'Word is required');
   }
 
+  if (word.trim().length > vocabularyService.MAX_WORD_LENGTH) {
+    throw new ApiError(
+      400,
+      'VALIDATION_ERROR',
+      `Word must be at most ${vocabularyService.MAX_WORD_LENGTH} characters`
+    );
+  }
+
   const result = await vocabularyService.addWord({
     word: word.trim().toLowerCase(),
     partOfSpeech,
@@ -50,15 +69,20 @@ export const addWord = catchAsync(async (req: Request, res: Response) => {
 });
 
 export const listWords = catchAsync(async (req: Request, res: Response) => {
-  const { search, status, sort = 'dateAdded', order = 'desc', page = '1', limit = '20' } = req.query;
+  const search = parseOptionalString(req.query.search, 'search');
+  const status = parseEnum(req.query.status, 'status', VALID_STATUSES);
+  const sort = parseOptionalString(req.query.sort, 'sort') ?? 'dateAdded';
+  const order = parseEnum(req.query.order, 'order', VALID_ORDERS) ?? 'desc';
+  const page = parsePositiveInt(req.query.page, 'page', 1, MAX_PAGE_NUMBER);
+  const limit = parsePositiveInt(req.query.limit, 'limit', 20, MAX_PAGE_LIMIT);
 
   const result = await vocabularyService.listWords({
-    search: search as string | undefined,
-    status: status as string | undefined,
-    sort: sort as string,
-    order: order as 'asc' | 'desc',
-    page: parseInt(page as string, 10),
-    limit: parseInt(limit as string, 10),
+    search,
+    status,
+    sort,
+    order,
+    page,
+    limit,
   });
 
   res.json({

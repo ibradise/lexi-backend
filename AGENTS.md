@@ -69,7 +69,7 @@ npm install
 # Run development server
 npm run dev
 
-# Run tests
+# Run tests (serial — integration tests share one live Postgres)
 npm test
 
 # Run Prisma Studio (view database)
@@ -177,7 +177,7 @@ PORT=3001
 | DELETE | /api/vocabulary/:id | Soft delete word |
 | POST | /api/vocabulary/:id/regenerate-ai | Regenerate AI content |
 | GET | /api/review/today | Today's review queue |
-| POST | /api/review/:wordId/submit | Submit `{ exerciseId, userAnswer?, skipped? }` — server derives CORRECT/INCORRECT/SKIPPED |
+| POST | /api/review/:wordId/submit | Submit `{ exerciseId, userAnswer?, skipped?, submissionId? }` — server derives CORRECT/INCORRECT/SKIPPED; `submissionId` makes retries idempotent |
 | GET | /api/review/history | Review history |
 | GET | /api/dashboard | Dashboard data |
 
@@ -194,6 +194,7 @@ PORT=3001
 ### Database Entities
 - VocabularyWord → LearningState (1:1)
 - VocabularyWord → ReviewHistory (1:N)
+- `ReviewHistory.submissionId` (nullable, unique) — optional client idempotency key for review submits
 - `VocabularyWord.aiData` (Json) — the whole AI response (meanings, examples, exercises, synonyms, antonyms, pronunciation, difficulty); `examples` are learning content, `exercises` are answerable MULTIPLE_CHOICE items
 
 ### Knowledge Scoring

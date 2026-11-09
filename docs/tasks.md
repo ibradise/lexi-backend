@@ -108,3 +108,54 @@
 - [x] `npm run build`
 - [x] `npm test` — 56/56 pass
 - [x] Manual: add → exercises → submit correct/wrong/skipped → detail/history/dashboard → delete → 404s (covered by integration tests)
+
+---
+
+## Phase 12: Remaining bug fixes (#5–#9)
+
+**Status:** Done 2026-11-06 — build passes, 69/69 tests pass.
+**Goal:** Close the remaining issues from the backend audit (validation 500s, skip loop,
+double-submit, missing-AI contract, truncated queue counts).
+
+### Decisions
+- **#5** Malformed input → `400 VALIDATION_ERROR` (not 500): `page >= 1`, `limit` 1–100;
+  `order` ∈ `{asc, desc}`; `status` must be a `WordStatus`; `responseTimeMs` integer 0–60000;
+  `hintUsed`/`skipped` must be booleans when present; single-add enforces `MAX_WORD_LENGTH`.
+- **#6** `SKIPPED` uses `intervalDays = max(1, current)` so a NEW word returns tomorrow, not immediately.
+- **#7** Optional `submissionId` on submit, unique on `ReviewHistory`; a repeat returns the stored
+  result + current learning state; reuse for another word → 409.
+- **#8** `GET /api/vocabulary/:id/exercises` returns `409 AI_NOT_READY` when `aiData` is null
+  (consistent with submit).
+- **#9** Queue counts come from `count` queries; queue items stay capped at 30, new-word fetch cap 10.
+
+### Task 5 — Request validation
+- [x] `src/utils/query.ts`: strict positive-int parser with max (throws 400)
+- [x] `vocabulary.controller.ts`: validate `page`, `limit`, `order`, `status`, `search`; single-add length
+- [x] `review.controller.ts`: validate history pagination + submit body (`responseTimeMs`, booleans, `submissionId`)
+- [x] Tests: malformed query/body → 400
+
+### Task 6 — Skip scheduling
+- [x] `scoring.service.ts`: `SKIPPED` → `intervalDays = max(1, current)`
+- [x] Test: skipping a NEW word schedules it ≥1 day out
+
+### Task 7 — Submit idempotency
+- [x] Schema: `ReviewHistory.submissionId String? @unique` + migration
+- [x] `submitReview`: return existing review when `submissionId` already seen; 409 on word mismatch
+- [x] Tests: duplicate submit → one row, same result; cross-word reuse → 409
+
+### Task 8 — Missing-AI contract
+- [x] `getExercises`: `409 AI_NOT_READY` when `aiData` is null
+- [x] Test: PENDING word exercises → 409
+
+### Task 9 — Queue counts
+- [x] `getTodayReview`: `totalDue`/`newWords`/`reviewWords` from `count` queries
+- [x] Keep item cap (`QUEUE_LIMIT = 30`) and raise new-word fetch cap (`NEW_WORD_LIMIT = 10`)
+- [x] Test: >30 due → `totalDue` > 30 while `queue.length === 30`
+
+### Minor
+- [x] `scoring.service.ts`: `responseTimeMs ?? 5000` so a real `0` is respected
+
+### Verification
+- [x] `npm run build`
+- [x] `npm test`
+- [x] Docs: `AGENTS.md`, `docs/architecture.md`, `docs/IMPLEMENTATION.md`

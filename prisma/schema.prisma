@@ -52,6 +52,7 @@ model LearningState {
 
 model ReviewHistory {
   id             String       @id @default(cuid())
+  submissionId   String?      @unique
   wordId         String
   exerciseType   ExerciseType
   result         ReviewResult

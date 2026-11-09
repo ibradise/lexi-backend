@@ -7,7 +7,7 @@
     "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "jest",
+    "test": "jest --runInBand",
     "postinstall": "prisma generate"
   },
   "keywords": [],

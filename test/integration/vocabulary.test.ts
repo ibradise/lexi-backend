@@ -1,5 +1,6 @@
 import request from 'supertest';
 import app from '../../src/app';
+import { prisma } from '../../src/lib/prisma';
 import { generateWordContent } from '../../src/services/ai.service';
 
 jest.mock('../../src/services/ai.service', () => ({
@@ -84,6 +85,15 @@ describe('Vocabulary API', () => {
       expect(res.status).toBe(409);
       expect(res.body.success).toBe(false);
     });
+
+    it('should return 400 for a word longer than the max length', async () => {
+      const res = await request(app)
+        .post('/api/vocabulary')
+        .send({ word: 'a'.repeat(101) });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
   });
 
   describe('POST /api/vocabulary (bulk)', () => {
@@ -160,9 +170,13 @@ describe('Vocabulary API', () => {
   describe('AI generation retries', () => {
     it('should retry after a failure and eventually persist aiData', async () => {
       const name = `retry${Date.now()}`;
-      (generateWordContent as jest.Mock)
-        .mockRejectedValueOnce(new Error('temporary failure 1'))
-        .mockRejectedValueOnce(new Error('temporary failure 2'));
+      let calls = 0;
+      (generateWordContent as jest.Mock).mockImplementation(async (word: string) => {
+        if (word !== name) return aiFixture;
+        calls += 1;
+        if (calls <= 2) throw new Error('temporary failure');
+        return aiFixture;
+      });
 
       const create = await request(app).post('/api/vocabulary').send({ word: name });
       expect(create.status).toBe(201);
@@ -170,7 +184,7 @@ describe('Vocabulary API', () => {
 
       const id = create.body.data.id;
       let ready = false;
-      for (let i = 0; i < 60 && !ready; i++) {
+      for (let i = 0; i < 100 && !ready; i++) {
         const get = await request(app).get(`/api/vocabulary/${id}`);
         ready = Boolean(get.body.data.aiData);
         if (!ready) await new Promise((r) => setTimeout(r, 200));
@@ -180,17 +194,20 @@ describe('Vocabulary API', () => {
 
     it('should give up after MAX_ATTEMPTS and leave the word PENDING', async () => {
       const name = `giveup${Date.now()}`;
-      (generateWordContent as jest.Mock).mockRejectedValue(new Error('always fails'));
+      let calls = 0;
+      (generateWordContent as jest.Mock).mockImplementation(async (word: string) => {
+        if (word !== name) return aiFixture;
+        calls += 1;
+        throw new Error('always fails');
+      });
 
       const create = await request(app).post('/api/vocabulary').send({ word: name });
       const id = create.body.data.id;
 
       // 1 addWord call + 3 worker attempts (retries ~2s, then ~4s apart)
-      await new Promise((r) => setTimeout(r, 7500));
-
-      const calls = (generateWordContent as jest.Mock).mock.calls.filter(
-        (c) => c[0] === name
-      ).length;
+      for (let i = 0; i < 100 && calls < 4; i++) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
       expect(calls).toBe(4);
 
       const get = await request(app).get(`/api/vocabulary/${id}`);
@@ -216,6 +233,16 @@ describe('Vocabulary API', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.length).toBeGreaterThan(0);
+    });
+
+    it('should return 400 for invalid query parameters', async () => {
+      const queries = ['page=abc', 'page=0', 'limit=101', 'order=foo', 'status=bogus'];
+
+      for (const query of queries) {
+        const res = await request(app).get(`/api/vocabulary?${query}`);
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('VALIDATION_ERROR');
+      }
     });
   });
 
@@ -256,6 +283,20 @@ describe('Vocabulary API', () => {
       const res = await request(app).get('/api/vocabulary/nonexistent/exercises');
 
       expect(res.status).toBe(404);
+    });
+
+    it('should return 409 when AI content is not ready', async () => {
+      const pending = await prisma.vocabularyWord.create({
+        data: {
+          word: `pending${Date.now()}`,
+          learningState: { create: { status: 'NEW', knowledgeScore: 0 } },
+        },
+      });
+
+      const res = await request(app).get(`/api/vocabulary/${pending.id}/exercises`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.error.code).toBe('AI_NOT_READY');
     });
 
     it('should return stable exercise ids across requests', async () => {

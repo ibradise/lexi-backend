@@ -27,6 +27,26 @@ describe('Scoring Service', () => {
       expect(score).toBeGreaterThan(0.5);
     });
 
+    it('treats a zero response time as a real value', () => {
+      const make = (responseTimeMs: number) => [
+        {
+          id: 'r1',
+          wordId: 'w1',
+          exerciseType: 'MULTIPLE_CHOICE' as const,
+          result: 'CORRECT' as const,
+          responseTimeMs,
+          userAnswer: null,
+          correctAnswer: null,
+          hintUsed: false,
+          createdAt: new Date(),
+        },
+      ];
+
+      expect(calculateKnowledgeScore(make(0))).toBeGreaterThan(
+        calculateKnowledgeScore(make(5000))
+      );
+    });
+
     it('returns lower score for incorrect reviews', () => {
       const reviews = Array.from({ length: 5 }, (_, i) => ({
         id: `r${i}`,
@@ -76,10 +96,15 @@ describe('Scoring Service', () => {
       expect(result.easeFactor).toBe(2.4);
     });
 
-    it('does not change on skipped', () => {
+    it('does not shorten an existing interval on skipped', () => {
       const result = calculateNewInterval({ ...baseState, repetitions: 3, intervalDays: 6 } as never, 'SKIPPED');
       expect(result.intervalDays).toBe(6);
       expect(result.repetitions).toBe(3);
+    });
+
+    it('schedules a skipped NEW word one day out', () => {
+      const result = calculateNewInterval(baseState as never, 'SKIPPED');
+      expect(result.intervalDays).toBe(1);
     });
   });
 

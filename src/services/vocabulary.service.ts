@@ -6,7 +6,7 @@ import { persistAIData, enqueueAIGeneration } from './aiQueue.service';
 
 const AI_WAIT_MS = 8000;
 export const MAX_BULK_WORDS = 50;
-const MAX_WORD_LENGTH = 100;
+export const MAX_WORD_LENGTH = 100;
 const ALLOWED_SORT_FIELDS = ['dateAdded', 'word'] as const;
 
 interface AddWordInput {
@@ -232,7 +232,10 @@ export const getExercises = async (wordId: string) => {
   }
 
   const aiData = (word.aiData as unknown as AIData | null) ?? null;
-  const all = aiData?.exercises ?? [];
+  if (!aiData) {
+    throw new ApiError(409, 'AI_NOT_READY', 'AI content is not ready for this word');
+  }
+  const all = aiData.exercises;
 
   const indexed = all.map((exercise, index) => ({ exercise, index }));
   const picked = shuffle(indexed).slice(0, Math.min(3, indexed.length));

@@ -205,3 +205,19 @@
 
 ## Notes
 - Postgres reachable again via `db.prisma.io`; all migrations applied and integration tests run against it
+
+---
+
+## 2026-11-06 — Phase 12: Remaining bug fixes (#5–#9)
+- ✅ #5 Request validation: new `src/utils/query.ts` (`parsePositiveInt`, `parseEnum`, `parseOptionalString`); `listWords`/`getReviewHistory` reject bad `page`/`limit`/`order`/`status` with 400; submit validates `responseTimeMs` (integer 0–60000), booleans, and `submissionId`; single add enforces `MAX_WORD_LENGTH`
+- ✅ #6 Skip scheduling: `calculateNewInterval(SKIPPED)` returns `max(1, intervalDays)`, so a skipped NEW word returns tomorrow instead of immediately
+- ✅ #7 Submit idempotency: added nullable unique `ReviewHistory.submissionId` (migration `20261108090000_add_review_submission_id`, applied); replaying a key returns the original review + current state; reusing it for another word → 409
+- ✅ #8 Missing-AI contract: `GET /api/vocabulary/:id/exercises` now returns `409 AI_NOT_READY` when `aiData` is null (matches submit)
+- ✅ #9 Queue counts: `getTodayReview` derives `totalDue`/`newWords`/`reviewWords` from `count` queries; items stay capped at 30, new-word fetch cap raised to 10
+- ✅ Minor: scoring uses `responseTimeMs ?? 5000` so a real 0ms is honored
+- ✅ Tests: 69/69 pass; `npm test` now runs `jest --runInBand` (the suites share one live Postgres and parallel workers caused intermittent failures)
+
+## API Changes
+- `POST /api/review/:wordId/submit` accepts optional `submissionId` (client-generated UUID) for idempotent retries
+- Malformed query/body input now returns `400 VALIDATION_ERROR` instead of a 500
+- `GET /api/vocabulary/:id/exercises` returns `409 AI_NOT_READY` for words still generating AI content

@@ -12,7 +12,7 @@ export const calculateKnowledgeScore = (reviews: ReviewSignals[]): number => {
 
 // Reverse the response-time ratio(1 - avgResponseTime) so faster answers get higher scores, indicating the user is more familiar with the word.
   const avgResponseTime =
-    last10.reduce((sum, r) => sum + (r.responseTimeMs || 5000), 0) / last10.length;
+    last10.reduce((sum, r) => sum + (r.responseTimeMs ?? 5000), 0) / last10.length;
   const timeComponent = Math.max(0, 1 - avgResponseTime / 10000);
 
   const hintCount = last10.filter((r) => r.hintUsed).length;
@@ -34,7 +34,7 @@ export const calculateNewInterval = (
 ): { intervalDays: number; easeFactor: number; repetitions: number } => {
   if (result === 'SKIPPED') {
     return {
-      intervalDays: state.intervalDays,
+      intervalDays: Math.max(1, state.intervalDays),
       easeFactor: state.easeFactor,
       repetitions: state.repetitions,
     };
