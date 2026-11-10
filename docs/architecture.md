@@ -95,14 +95,20 @@ GET    /api/dashboard               — Dashboard data
 
 ### Score Components
 
-| Signal | Weight |
-|--------|--------|
-| Review accuracy | 65% |
-| Response time | 15% |
-| Hint usage | 10% |
-| Repetition count | 10% |
+| Signal | Weight | Component |
+|--------|--------|-----------|
+| Review accuracy | 45% | last 10 *answered* reviews; `CORRECT`=1, `PARTIAL`=0.5, `INCORRECT`=0; `SKIPPED` excluded |
+| Interval length | 20% | `min(intervalDays / 30, 1)` |
+| Response time | 15% | `clamp(1 - avgResponseTime / 10s)` |
+| Hint usage | 10% | `1 - hints / answered` |
+| Repetition count | 10% | `min(answeredReviews / 8, 1)` |
 
-(Computed over the last 10 reviews — see `src/services/scoring.service.ts`.)
+All components are clamped to `0–1`; the score is their weighted sum, clamped to
+`0–1`. `SKIPPED` is neutral: it does not lower accuracy and is excluded from the
+time/hint/repetition signals. Submit responses include `scoreBreakdown`
+(`accuracy`, `interval`, `responseTime`, `hint`, `repetition`) alongside the score.
+See `src/services/scoring.service.ts`; backfill existing rows with
+`npm run recompute-scores`.
 
 ### SM-2 Interval
 

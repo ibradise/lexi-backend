@@ -3,8 +3,8 @@ import { prisma } from '../lib/prisma';
 import { ApiError } from '../utils/ApiError';
 import { AIData } from '../types/ai';
 import {
-  calculateKnowledgeScore,
   calculateNewInterval,
+  calculateScoreBreakdown,
   getStatusFromScore,
   calculatePriorityScore,
 } from './scoring.service';
@@ -43,8 +43,17 @@ const findExistingSubmission = async (wordId: string, submissionId: string) => {
     throw new ApiError(409, 'CONFLICT', 'submissionId already used for another word');
   }
 
-  const learningState = await prisma.learningState.findUnique({ where: { wordId } });
-  return { review, learningState };
+  const [learningState, reviews] = await Promise.all([
+    prisma.learningState.findUnique({ where: { wordId } }),
+    prisma.reviewHistory.findMany({
+      where: { wordId },
+      select: { result: true, responseTimeMs: true, hintUsed: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    }),
+  ]);
+
+  const { breakdown } = calculateScoreBreakdown(reviews, learningState?.intervalDays ?? 0);
+  return { review, learningState, scoreBreakdown: breakdown };
 };
 
 export const submitReview = async (input: SubmitReviewInput) => {
@@ -105,8 +114,6 @@ export const submitReview = async (input: SubmitReviewInput) => {
       });
 
       const allReviews = [...word.reviews, review];
-      const newScore = calculateKnowledgeScore(allReviews);
-      const newStatus = getStatusFromScore(newScore);
 
       const currentInterval = word.learningState?.intervalDays || 0;
       const currentEase = word.learningState?.easeFactor || 2.5;
@@ -120,6 +127,12 @@ export const submitReview = async (input: SubmitReviewInput) => {
         } as never,
         result
       );
+
+      const { score: newScore, breakdown: scoreBreakdown } = calculateScoreBreakdown(
+        allReviews,
+        intervalDays
+      );
+      const newStatus = getStatusFromScore(newScore);
 
       const nextReviewAt = new Date();
       nextReviewAt.setDate(nextReviewAt.getDate() + intervalDays);
@@ -147,7 +160,7 @@ export const submitReview = async (input: SubmitReviewInput) => {
         },
       });
 
-      return { review, learningState };
+      return { review, learningState, scoreBreakdown };
     });
   } catch (err) {
     if (

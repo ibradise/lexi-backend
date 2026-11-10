@@ -159,3 +159,55 @@ double-submit, missing-AI contract, truncated queue counts).
 - [x] `npm run build`
 - [x] `npm test`
 - [x] Docs: `AGENTS.md`, `docs/architecture.md`, `docs/IMPLEMENTATION.md`
+
+---
+
+## Phase 13: Make knowledge scoring smart and PRD-aligned
+
+**Status:** Done 2026-11-06 — build passes, 77/77 tests pass, 619 scores backfilled.
+**Goal:** Make knowledge scoring the reliable core of the app: all five PRD signals,
+normalized, consistent skip handling, and a transparent breakdown.
+
+### Decisions
+- **Weights:** accuracy **45%**, interval **20%**, response time **15%**, hint **10%**,
+  repetition **10%** (accuracy stays dominant; adds the missing interval signal).
+- **Interval component:** `min(intervalDays / 30, 1)` (30-day cap, linear).
+- **Accuracy:** over the last 10 *answered* reviews; `SKIPPED` excluded (neutral).
+  `PARTIAL` counts as 0.5.
+- **Time / hint:** over the last 10 answered reviews; skip excluded.
+- **Repetition:** `min(answeredReviews / 8, 1)` (skip excluded).
+- **All components clamped to 0–1**; final score clamped to 0–1.
+- **`SKIPPED`** leaves the score unchanged for an established word (neutral) and still
+  schedules at least one day out.
+- **API:** submit response gains `scoreBreakdown` (backward-compatible).
+- **Backfill:** recompute existing `LearningState.knowledgeScore` from history.
+
+### Task 1 — Scoring engine
+- [x] Export `SCORE_WEIGHTS`, `INTERVAL_CAP_DAYS`, `RESPONSE_TIME_CAP_MS`
+- [x] `calculateScoreBreakdown(reviews, intervalDays)` → `{ score, breakdown }`
+- [x] Keep `calculateKnowledgeScore(reviews, intervalDays = 0)` as a wrapper
+- [x] Accuracy handles `CORRECT` / `PARTIAL` / `INCORRECT`; skip excluded
+- [x] Interval, time, hint, repetition components clamped to 0–1
+
+### Task 2 — Wire into review flow
+- [x] Compute the new interval first, then score with that interval
+- [x] Return `scoreBreakdown` from `submitReview`
+- [x] Verify skip does not move an established word's score
+
+### Task 3 — Backfill existing scores
+- [x] `src/scripts/recomputeScores.ts` recomputes from ordered history + current interval
+- [x] `npm run recompute-scores` and run it against the DB
+
+### Task 4 — Tests
+- [x] Unit: each component boundary (0, cap, >cap), partial accuracy, skip neutrality, clamping
+- [x] Integration: `scoreBreakdown` present and consistent; interval boosts score on correct;
+      skip leaves score unchanged
+
+### Task 5 — Docs
+- [x] `docs/architecture.md` scoring table + formula
+- [x] `AGENTS.md` knowledge scoring section
+- [x] `docs/IMPLEMENTATION.md` Phase 13 entry
+
+### Verification
+- [x] `npm run build`
+- [x] `npm test`

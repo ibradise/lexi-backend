@@ -198,7 +198,10 @@ PORT=3001
 - `VocabularyWord.aiData` (Json) — the whole AI response (meanings, examples, exercises, synonyms, antonyms, pronunciation, difficulty); `examples` are learning content, `exercises` are answerable MULTIPLE_CHOICE items
 
 ### Knowledge Scoring
-- Review accuracy (65%), response time (15%), hint usage (10%), repetition count (10%) over the last 10 reviews
+- Review accuracy (45%), interval length (20%), response time (15%), hint usage (10%), repetition count (10%)
+- Accuracy/time/hint use the last 10 answered reviews; `SKIPPED` is neutral (excluded)
+- Interval component is `min(intervalDays / 30, 1)`; every component is clamped to 0–1
+- Submit responses include `scoreBreakdown`; recompute existing rows with `npm run recompute-scores`
 - SM-2 interval: correct → interval × easeFactor, incorrect → reset to 1 day
 
 ### AI Integration

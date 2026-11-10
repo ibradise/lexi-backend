@@ -221,3 +221,17 @@
 - `POST /api/review/:wordId/submit` accepts optional `submissionId` (client-generated UUID) for idempotent retries
 - Malformed query/body input now returns `400 VALIDATION_ERROR` instead of a 500
 - `GET /api/vocabulary/:id/exercises` returns `409 AI_NOT_READY` for words still generating AI content
+
+---
+
+## 2026-11-06 — Phase 13: Smart knowledge scoring
+- ✅ Five PRD signals: accuracy 45%, interval 20%, response time 15%, hint 10%, repetition 10% (`SCORE_WEIGHTS`)
+- ✅ Added the missing interval component: `min(intervalDays / 30, 1)` (30-day cap)
+- ✅ Accuracy handles `CORRECT`=1, `PARTIAL`=0.5, `INCORRECT`=0; `SKIPPED` is neutral and excluded from accuracy/time/hint/repetition
+- ✅ Every component clamped to 0–1; final score clamped to 0–1
+- ✅ Score is computed with the newly scheduled interval; `submitReview` returns `scoreBreakdown`
+- ✅ `npm run recompute-scores` backfills existing `LearningState` scores/status from ordered history (619 rows)
+- ✅ Tests: 77/77 pass; Jest `testTimeout` raised to 180s for the remote Postgres latency
+
+## API Changes
+- `POST /api/review/:wordId/submit` response now includes `scoreBreakdown` (`accuracy`, `interval`, `responseTime`, `hint`, `repetition`)

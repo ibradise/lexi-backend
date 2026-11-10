@@ -1,66 +1,113 @@
 import {
+  SCORE_WEIGHTS,
   calculateKnowledgeScore,
   calculateNewInterval,
+  calculateScoreBreakdown,
   getStatusFromScore,
   calculatePriorityScore,
+  type ReviewSignals,
 } from '../../src/services/scoring.service';
 
+const makeReview = (overrides: Partial<ReviewSignals> = {}): ReviewSignals => ({
+  result: 'CORRECT',
+  responseTimeMs: 2000,
+  hintUsed: false,
+  ...overrides,
+});
+
 describe('Scoring Service', () => {
-  describe('calculateKnowledgeScore', () => {
-    it('returns 0 for no reviews', () => {
-      expect(calculateKnowledgeScore([])).toBe(0);
+  describe('calculateScoreBreakdown', () => {
+    it('returns a zero score for no reviews and no interval', () => {
+      const { score, breakdown } = calculateScoreBreakdown([], 0);
+
+      expect(score).toBe(0);
+      expect(breakdown).toEqual({
+        accuracy: 0,
+        interval: 0,
+        responseTime: 0,
+        hint: 0,
+        repetition: 0,
+      });
     });
 
-    it('returns higher score for all correct reviews', () => {
-      const reviews = Array.from({ length: 5 }, (_, i) => ({
-        id: `r${i}`,
-        wordId: 'w1',
-        exerciseType: 'MULTIPLE_CHOICE' as const,
-        result: 'CORRECT' as const,
-        responseTimeMs: 2000,
-        userAnswer: null,
-        correctAnswer: null,
-        hintUsed: false,
-        createdAt: new Date(),
-      }));
-      const score = calculateKnowledgeScore(reviews);
-      expect(score).toBeGreaterThan(0.5);
+    it('scores all-correct, fast, hint-free reviews highly', () => {
+      const reviews = Array.from({ length: 8 }, () => makeReview({ responseTimeMs: 0 }));
+      const { score, breakdown } = calculateScoreBreakdown(reviews, 30);
+
+      expect(breakdown.accuracy).toBe(1);
+      expect(breakdown.interval).toBe(1);
+      expect(breakdown.responseTime).toBe(1);
+      expect(breakdown.hint).toBe(1);
+      expect(breakdown.repetition).toBe(1);
+      expect(score).toBeCloseTo(1);
     });
 
-    it('treats a zero response time as a real value', () => {
-      const make = (responseTimeMs: number) => [
-        {
-          id: 'r1',
-          wordId: 'w1',
-          exerciseType: 'MULTIPLE_CHOICE' as const,
-          result: 'CORRECT' as const,
-          responseTimeMs,
-          userAnswer: null,
-          correctAnswer: null,
-          hintUsed: false,
-          createdAt: new Date(),
-        },
+    it('counts PARTIAL as half accuracy', () => {
+      const reviews = [makeReview(), makeReview({ result: 'PARTIAL' })];
+      const { breakdown } = calculateScoreBreakdown(reviews, 0);
+
+      expect(breakdown.accuracy).toBeCloseTo(0.75);
+    });
+
+    it('excludes SKIPPED reviews from accuracy, time, hint, and repetition', () => {
+      const reviews = [
+        makeReview(),
+        makeReview({ hintUsed: true, responseTimeMs: 8000 }),
+        makeReview({ result: 'SKIPPED', hintUsed: true, responseTimeMs: 9000 }),
+        makeReview({ result: 'SKIPPED', hintUsed: true, responseTimeMs: 9000 }),
       ];
+      const { breakdown } = calculateScoreBreakdown(reviews, 0);
 
-      expect(calculateKnowledgeScore(make(0))).toBeGreaterThan(
-        calculateKnowledgeScore(make(5000))
-      );
+      expect(breakdown.accuracy).toBe(1);
+      expect(breakdown.hint).toBe(0.5);
+      expect(breakdown.repetition).toBe(0.25);
     });
 
-    it('returns lower score for incorrect reviews', () => {
-      const reviews = Array.from({ length: 5 }, (_, i) => ({
-        id: `r${i}`,
-        wordId: 'w1',
-        exerciseType: 'MULTIPLE_CHOICE' as const,
-        result: 'INCORRECT' as const,
-        responseTimeMs: 8000,
-        userAnswer: null,
-        correctAnswer: null,
-        hintUsed: true,
-        createdAt: new Date(),
-      }));
-      const score = calculateKnowledgeScore(reviews);
-      expect(score).toBeLessThan(0.3);
+    it('caps the interval component at 30 days', () => {
+      expect(calculateScoreBreakdown([], 0).breakdown.interval).toBe(0);
+      expect(calculateScoreBreakdown([], 30).breakdown.interval).toBe(1);
+      expect(calculateScoreBreakdown([], 90).breakdown.interval).toBe(1);
+    });
+
+    it('computes response time linearly up to the cap', () => {
+      const at = (responseTimeMs: number) =>
+        calculateScoreBreakdown([makeReview({ responseTimeMs })], 0).breakdown.responseTime;
+
+      expect(at(0)).toBe(1);
+      expect(at(5000)).toBeCloseTo(0.5);
+      expect(at(10000)).toBe(0);
+      expect(at(20000)).toBe(0);
+    });
+
+    it('uses the default response time when none is recorded', () => {
+      const { breakdown } = calculateScoreBreakdown([makeReview({ responseTimeMs: null })], 0);
+
+      expect(breakdown.responseTime).toBeCloseTo(0.5);
+    });
+
+    it('weights the five components with SCORE_WEIGHTS', () => {
+      const { score, breakdown } = calculateScoreBreakdown(
+        [makeReview({ responseTimeMs: 5000 })],
+        30
+      );
+      const expected =
+        breakdown.accuracy * SCORE_WEIGHTS.accuracy +
+        breakdown.interval * SCORE_WEIGHTS.interval +
+        breakdown.responseTime * SCORE_WEIGHTS.responseTime +
+        breakdown.hint * SCORE_WEIGHTS.hint +
+        breakdown.repetition * SCORE_WEIGHTS.repetition;
+
+      expect(score).toBeCloseTo(expected);
+      expect(score).toBeGreaterThanOrEqual(0);
+      expect(score).toBeLessThanOrEqual(1);
+    });
+
+    it('keeps the wrapper in sync with the breakdown', () => {
+      const reviews = [makeReview(), makeReview({ result: 'INCORRECT' })];
+
+      expect(calculateKnowledgeScore(reviews, 10)).toBe(
+        calculateScoreBreakdown(reviews, 10).score
+      );
     });
   });
 

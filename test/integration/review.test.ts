@@ -2,6 +2,7 @@ import request from 'supertest';
 import { Prisma } from '@prisma/client';
 import app from '../../src/app';
 import { generateWordContent } from '../../src/services/ai.service';
+import { SCORE_WEIGHTS } from '../../src/services/scoring.service';
 import { prisma } from '../../src/lib/prisma';
 
 jest.mock('../../src/services/ai.service', () => ({
@@ -286,6 +287,80 @@ describe('Review API', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.learningState.repetitions).toBeGreaterThan(1);
       expect(res.body.data.learningState.knowledgeScore).toBeGreaterThan(0);
+    });
+
+    it('should return a score breakdown consistent with the stored score', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      const res = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        responseTimeMs: 2000,
+      });
+
+      expect(res.status).toBe(200);
+      const { scoreBreakdown, learningState } = res.body.data;
+
+      for (const key of ['accuracy', 'interval', 'responseTime', 'hint', 'repetition']) {
+        expect(scoreBreakdown[key]).toBeGreaterThanOrEqual(0);
+        expect(scoreBreakdown[key]).toBeLessThanOrEqual(1);
+      }
+      expect(scoreBreakdown.accuracy).toBe(1);
+
+      const expected =
+        scoreBreakdown.accuracy * SCORE_WEIGHTS.accuracy +
+        scoreBreakdown.interval * SCORE_WEIGHTS.interval +
+        scoreBreakdown.responseTime * SCORE_WEIGHTS.responseTime +
+        scoreBreakdown.hint * SCORE_WEIGHTS.hint +
+        scoreBreakdown.repetition * SCORE_WEIGHTS.repetition;
+
+      expect(learningState.knowledgeScore).toBeCloseTo(expected, 5);
+    });
+
+    it('should keep an established score unchanged when skipping', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      for (let i = 0; i < 2; i++) {
+        await request(app).post(`/api/review/${wordId}/submit`).send({
+          exerciseId,
+          userAnswer: CORRECT_ANSWER,
+          responseTimeMs: 2000,
+        });
+      }
+
+      const before = await request(app).get(`/api/vocabulary/${wordId}`);
+      const beforeScore = before.body.data.learningState.knowledgeScore;
+
+      const skipped = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        skipped: true,
+      });
+
+      expect(skipped.status).toBe(200);
+      expect(skipped.body.data.review.result).toBe('SKIPPED');
+      expect(skipped.body.data.learningState.knowledgeScore).toBeCloseTo(beforeScore, 10);
+      expect(skipped.body.data.scoreBreakdown).toEqual(
+        expect.objectContaining({ accuracy: expect.any(Number) })
+      );
+    });
+
+    it('should raise the interval component as correct answers accumulate', async () => {
+      const { wordId, exerciseId } = await setupWord();
+
+      const first = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        responseTimeMs: 2000,
+      });
+      const second = await request(app).post(`/api/review/${wordId}/submit`).send({
+        exerciseId,
+        userAnswer: CORRECT_ANSWER,
+        responseTimeMs: 2000,
+      });
+
+      expect(second.body.data.scoreBreakdown.interval).toBeGreaterThan(
+        first.body.data.scoreBreakdown.interval
+      );
     });
   });
 

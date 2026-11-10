@@ -2,31 +2,90 @@ import { ReviewHistory, LearningState } from '@prisma/client';
 
 export type ReviewSignals = Pick<ReviewHistory, 'result' | 'responseTimeMs' | 'hintUsed'>;
 
-export const calculateKnowledgeScore = (reviews: ReviewSignals[]): number => {
-  if (reviews.length === 0) return 0;
+export interface ScoreBreakdown {
+  accuracy: number;
+  interval: number;
+  responseTime: number;
+  hint: number;
+  repetition: number;
+}
 
-  const last10 = reviews.slice(-10);
+export interface KnowledgeScore {
+  score: number;
+  breakdown: ScoreBreakdown;
+}
 
-  const correctCount = last10.filter((r) => r.result === 'CORRECT').length;
-  const accuracyComponent = correctCount / last10.length;
+export const SCORE_WEIGHTS = {
+  accuracy: 0.45,
+  interval: 0.2,
+  responseTime: 0.15,
+  hint: 0.1,
+  repetition: 0.1,
+} as const;
 
-// Reverse the response-time ratio(1 - avgResponseTime) so faster answers get higher scores, indicating the user is more familiar with the word.
-  const avgResponseTime =
-    last10.reduce((sum, r) => sum + (r.responseTimeMs ?? 5000), 0) / last10.length;
-  const timeComponent = Math.max(0, 1 - avgResponseTime / 10000);
+export const INTERVAL_CAP_DAYS = 30;
+export const RESPONSE_TIME_CAP_MS = 10000;
+export const DEFAULT_RESPONSE_TIME_MS = 5000;
+export const REPETITION_TARGET = 8;
 
-  const hintCount = last10.filter((r) => r.hintUsed).length;
-  const hintComponent = 1 - hintCount / last10.length;
+const clamp = (value: number): number => Math.min(1, Math.max(0, value));
 
-  const repetitionComponent = Math.min(reviews.length / 8, 1.0);
-
-  return (
-    accuracyComponent * 0.65 +
-    timeComponent * 0.15 +
-    hintComponent * 0.1 +
-    repetitionComponent * 0.1
-  );
+const accuracyPoints = (result: ReviewSignals['result']): number => {
+  if (result === 'CORRECT') return 1;
+  if (result === 'PARTIAL') return 0.5;
+  return 0;
 };
+
+export const calculateScoreBreakdown = (
+  reviews: ReviewSignals[],
+  intervalDays: number
+): KnowledgeScore => {
+  const answered = reviews.filter((r) => r.result !== 'SKIPPED');
+  const last10 = answered.slice(-10);
+
+  const accuracy =
+    last10.length === 0
+      ? 0
+      : last10.reduce((sum, r) => sum + accuracyPoints(r.result), 0) / last10.length;
+
+  const avgResponseTime =
+    last10.length === 0
+      ? 0
+      : last10.reduce(
+          (sum, r) => sum + (r.responseTimeMs ?? DEFAULT_RESPONSE_TIME_MS),
+          0
+        ) / last10.length;
+  const responseTime =
+    last10.length === 0 ? 0 : clamp(1 - avgResponseTime / RESPONSE_TIME_CAP_MS);
+
+  const hint =
+    last10.length === 0
+      ? 0
+      : 1 - last10.filter((r) => r.hintUsed).length / last10.length;
+
+  const repetition = clamp(answered.length / REPETITION_TARGET);
+  const interval = clamp(Math.max(0, intervalDays) / INTERVAL_CAP_DAYS);
+
+  const breakdown: ScoreBreakdown = {
+    accuracy: clamp(accuracy),
+    interval,
+    responseTime,
+    hint: clamp(hint),
+    repetition,
+  };
+
+  const score = clamp(
+    breakdown.accuracy * SCORE_WEIGHTS.accuracy +
+      breakdown.interval * SCORE_WEIGHTS.interval +
+      breakdown.responseTime * SCORE_WEIGHTS.responseTime +
+      breakdown.hint * SCORE_WEIGHTS.hint +
+      breakdown.repetition * SCORE_WEIGHTS.repetition
+  );
+
+  return { score, breakdown };
+};
+
+export const calculateKnowledgeScore = (reviews: ReviewSignals[], intervalDays = 0): number => calculateScoreBreakdown(reviews, intervalDays).score;
 
 export const calculateNewInterval = (
   state: LearningState,
